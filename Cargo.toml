@@ -1,0 +1,7 @@
+[package]
+name = "befunge"
+version = "0.1.0"
+authors = ["Benedikt Seidl"]
+edition = "2018"
+
+[dependencies]
