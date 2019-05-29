@@ -2,10 +2,18 @@ use crate::playfield::*;
 use rand::distributions;
 use std::io;
 
+#[derive(Debug, PartialEq)]
+enum Mode {
+    Execute,
+    String,
+    Terminate,
+}
+
 /// A Befunge interpreter
 pub struct Interpreter {
     nav: PlayfieldNavigator,
     stack: Vec<u8>,
+    mode: Mode,
 }
 
 impl Interpreter {
@@ -14,20 +22,32 @@ impl Interpreter {
         Self {
             nav: PlayfieldNavigator::new(field),
             stack: Vec::new(),
+            mode: Mode::Execute,
         }
     }
 
     /// Run the program.
     pub fn run(&mut self) {
-        while self.read() {
-            self.nav.step();
+        while self.mode != Mode::Terminate {
+            self.step();
         }
     }
 
-    fn read(&mut self) -> bool {
-        match self.nav.get() as char {
+    /// Execute one step of the program.
+    pub fn step(&mut self) {
+        self.mode = match self.mode {
+            Mode::Execute => self.execute_step(self.nav.get()),
+            Mode::String => self.string_step(self.nav.get()),
+            Mode::Terminate => return,
+        };
+
+        self.nav.step();
+    }
+
+    fn execute_step(&mut self, c: u8) -> Mode {
+        match c as char {
             // Push this number on the stack
-            '0'...'9' => self.stack.push(self.nav.get() - 0x30),
+            '0'...'9' => self.stack.push(c - 0x30),
 
             // Addition: Pop a and b, then push a+b
             '+' => {
@@ -124,7 +144,7 @@ impl Interpreter {
             }
 
             // Start string mode: push each character's ASCII value all the way up to the next "
-            '"' => self.read_string(),
+            '"' => return Mode::String,
 
             // Duplicate value on top of the stack
             ':' => {
@@ -200,23 +220,23 @@ impl Interpreter {
             }
 
             // End program
-            '@' => return false,
+            '@' => return Mode::Terminate,
 
             // No-op. Does nothing
             _ => (),
         }
 
-        true
+        Mode::Execute
     }
 
-    fn read_string(&mut self) {
-        self.nav.step();
-
-        while self.nav.get() as char != '"' {
-            self.stack.push(self.nav.get());
-
-            self.nav.step();
+    fn string_step(&mut self, c: u8) -> Mode {
+        if c as char == '"' {
+            return Mode::Execute;
         }
+
+        self.stack.push(c);
+
+        Mode::String
     }
 }
 
@@ -228,5 +248,355 @@ impl distributions::Distribution<Direction> for distributions::Standard {
             2 => Direction::Left,
             _ => Direction::Right,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::playfield::Playfield;
+
+    fn test_program(input: &str, execution: Vec<(Mode, Vec<u8>)>) {
+        let playfield = Playfield::new(input);
+        let mut interpreter = Interpreter::new(playfield);
+
+        for (mode, stack) in execution {
+            assert_eq!(mode, interpreter.mode);
+            assert_eq!(stack, interpreter.stack);
+
+            interpreter.step();
+        }
+    }
+
+    #[test]
+    fn interpret_digits() {
+        test_program(
+            "0123456789",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![0]),
+                (Mode::Execute, vec![0, 1]),
+                (Mode::Execute, vec![0, 1, 2]),
+                (Mode::Execute, vec![0, 1, 2, 3]),
+                (Mode::Execute, vec![0, 1, 2, 3, 4]),
+                (Mode::Execute, vec![0, 1, 2, 3, 4, 5]),
+                (Mode::Execute, vec![0, 1, 2, 3, 4, 5, 6]),
+                (Mode::Execute, vec![0, 1, 2, 3, 4, 5, 6, 7]),
+                (Mode::Execute, vec![0, 1, 2, 3, 4, 5, 6, 7, 8]),
+                (Mode::Execute, vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            ],
+        );
+    }
+
+    #[test]
+    fn interpret_arithmetic() {
+        test_program(
+            "73+",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![7]),
+                (Mode::Execute, vec![7, 3]),
+                (Mode::Execute, vec![10]),
+            ],
+        );
+
+        test_program(
+            "73-",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![7]),
+                (Mode::Execute, vec![7, 3]),
+                (Mode::Execute, vec![4]),
+            ],
+        );
+
+        test_program(
+            "73*",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![7]),
+                (Mode::Execute, vec![7, 3]),
+                (Mode::Execute, vec![21]),
+            ],
+        );
+
+        test_program(
+            "73/",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![7]),
+                (Mode::Execute, vec![7, 3]),
+                (Mode::Execute, vec![2]),
+            ],
+        );
+
+        test_program(
+            "73%",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![7]),
+                (Mode::Execute, vec![7, 3]),
+                (Mode::Execute, vec![1]),
+            ],
+        );
+    }
+
+    #[test]
+    fn interpret_logic() {
+        test_program(
+            "0!",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![0]),
+                (Mode::Execute, vec![1]),
+            ],
+        );
+
+        test_program(
+            "5!",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![5]),
+                (Mode::Execute, vec![0]),
+            ],
+        );
+
+        test_program(
+            "73`",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![7]),
+                (Mode::Execute, vec![7, 3]),
+                (Mode::Execute, vec![1]),
+            ],
+        );
+
+        test_program(
+            "45`",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![4]),
+                (Mode::Execute, vec![4, 5]),
+                (Mode::Execute, vec![0]),
+            ],
+        );
+    }
+
+    #[test]
+    fn interpret_direction() {
+        test_program(
+            "v\n3\n>4",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![3]),
+                (Mode::Execute, vec![3]),
+                (Mode::Execute, vec![3, 4]),
+            ],
+        );
+
+        test_program(
+            "<@^\n  @\n  5",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![5]),
+            ],
+        );
+
+        // TODO
+
+        test_program(
+            "?5@5\n5\n@\n5",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![5]),
+            ],
+        );
+    }
+
+    #[test]
+    fn interpret_controlflow() {
+        test_program(
+            "0_5",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![0]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![5]),
+            ],
+        );
+
+        test_program(
+            "3_5",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![3]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![3]),
+            ],
+        );
+
+        test_program(
+            "0|\n 5",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![0]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![5]),
+            ],
+        );
+
+        test_program(
+            "3|\n 5\n 4",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![3]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![4]),
+            ],
+        );
+    }
+
+    #[test]
+    fn interpret_string() {
+        test_program(
+            "\"abc\"",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::String, vec![]),
+                (Mode::String, vec![0x61]),
+                (Mode::String, vec![0x61, 0x62]),
+                (Mode::String, vec![0x61, 0x62, 0x63]),
+                (Mode::Execute, vec![0x61, 0x62, 0x63]),
+            ],
+        );
+
+        test_program(
+            "1\"xy",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![1]),
+                (Mode::String, vec![1]),
+                (Mode::String, vec![1, 0x78]),
+                (Mode::String, vec![1, 0x78, 0x79]),
+                (Mode::String, vec![1, 0x78, 0x79, 0x31]),
+                (Mode::Execute, vec![1, 0x78, 0x79, 0x31]),
+            ],
+        );
+
+        test_program(
+            "v\n\"\na\nb\n\"",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![]),
+                (Mode::String, vec![]),
+                (Mode::String, vec![0x61]),
+                (Mode::String, vec![0x61, 0x62]),
+                (Mode::Execute, vec![0x61, 0x62]),
+            ],
+        );
+    }
+
+    #[test]
+    fn interpret_stack_manipulation() {
+        test_program(
+            "1:",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![1]),
+                (Mode::Execute, vec![1, 1]),
+            ],
+        );
+
+        test_program(
+            "12\\",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![1]),
+                (Mode::Execute, vec![1, 2]),
+                (Mode::Execute, vec![2, 1]),
+            ],
+        );
+
+        test_program(
+            "1$",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![1]),
+                (Mode::Execute, vec![]),
+            ],
+        );
+    }
+
+    #[test]
+    fn interpret_output() {
+        // TODO
+
+        test_program(
+            "1.",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![1]),
+                (Mode::Execute, vec![]),
+            ],
+        );
+
+        test_program(
+            "\"a\",",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::String, vec![]),
+                (Mode::String, vec![0x61]),
+                (Mode::Execute, vec![0x61]),
+                (Mode::Execute, vec![]),
+            ],
+        );
+    }
+
+    #[test]
+    fn interpret_bridge() {
+        test_program(
+            "#01",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![1]),
+            ],
+        );
+    }
+
+    #[test]
+    fn interpret_field_manipulation() {
+        // TODO
+    }
+
+    #[test]
+    fn interpret_user_input() {
+        // TODO
+    }
+
+    #[test]
+    fn interpret_termination() {
+        test_program(
+            "@",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Terminate, vec![]),
+                (Mode::Terminate, vec![]),
+            ],
+        );
+
+        test_program(
+            "5@",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![5]),
+                (Mode::Terminate, vec![5]),
+                (Mode::Terminate, vec![5]),
+            ],
+        );
     }
 }

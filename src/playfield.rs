@@ -82,7 +82,7 @@ pub enum Direction {
 ///
 /// The navigator stores the current position and the direction at which we are looking.
 pub struct PlayfieldNavigator {
-    pub field: Playfield,
+    pub(crate) field: Playfield,
     pos: (usize, usize),
     dir: Direction,
 }
