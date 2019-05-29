@@ -146,3 +146,93 @@ impl PlayfieldNavigator {
         self.dir = dir
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playfield() {
+        let mut playfield = Playfield::new("abc\nde\nx yz\n");
+
+        assert_eq!(4, playfield.width());
+        assert_eq!(3, playfield.height());
+
+        assert_eq!("abc \nde  \nx yz\n", playfield.to_string());
+
+        assert_eq!('a', playfield[(0, 0)] as char);
+        assert_eq!(' ', playfield[(3, 1)] as char);
+
+        playfield[(3, 1)] = 0x62;
+
+        assert_eq!('b', playfield[(3, 1)] as char);
+    }
+
+    #[test]
+    fn playfield_navigator() {
+        let playfield = Playfield::new("abc\nde\nx yz\n");
+        let mut navigator = PlayfieldNavigator::new(playfield);
+
+        assert_eq!('a', navigator.get() as char);
+
+        navigator.step();
+
+        assert_eq!('b', navigator.get() as char);
+
+        navigator.step();
+
+        assert_eq!('c', navigator.get() as char);
+
+        navigator.step();
+
+        assert_eq!(' ', navigator.get() as char);
+
+        navigator.step();
+
+        assert_eq!('a', navigator.get() as char);
+
+        navigator.turn(Direction::Down);
+
+        assert_eq!('a', navigator.get() as char);
+
+        navigator.step();
+
+        assert_eq!('d', navigator.get() as char);
+
+        navigator.step();
+
+        assert_eq!('x', navigator.get() as char);
+
+        navigator.step();
+
+        assert_eq!('a', navigator.get() as char);
+
+        navigator.turn(Direction::Left);
+
+        assert_eq!('a', navigator.get() as char);
+
+        navigator.step();
+
+        assert_eq!(' ', navigator.get() as char);
+
+        navigator.turn(Direction::Up);
+
+        assert_eq!(' ', navigator.get() as char);
+
+        navigator.step();
+
+        assert_eq!('z', navigator.get() as char);
+    }
+
+    #[test]
+    fn playfield_navigator_modify() {
+        let playfield = Playfield::new("abc\nde\nx yz\n");
+        let mut navigator = PlayfieldNavigator::new(playfield);
+
+        assert_eq!('a', navigator.get() as char);
+
+        navigator.field[(0, 0)] = 0x62;
+
+        assert_eq!('b', navigator.get() as char);
+    }
+}
