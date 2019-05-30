@@ -22,7 +22,7 @@ fn main() {
     file.read_to_string(&mut contents).unwrap();
 
     let playfield = Playfield::new(&contents);
-    let mut interpreter = Interpreter::new(playfield);
+    let interpreter = Interpreter::new(playfield);
 
-    interpreter.run();
+    for _ in interpreter {}
 }

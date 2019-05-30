@@ -33,14 +33,9 @@ impl Playfield {
         }
     }
 
-    /// Return the width of this playfield.
-    pub fn width(&self) -> usize {
-        self.width
-    }
-
-    /// Return the height of this playfield.
-    pub fn height(&self) -> usize {
-        self.height
+    /// Return the dimensions of this playfield.
+    pub fn dimensions(&self) -> (usize, usize) {
+        (self.width, self.height)
     }
 }
 
@@ -82,18 +77,18 @@ pub enum Direction {
 ///
 /// The navigator stores the current position and the direction at which we are looking.
 pub struct PlayfieldNavigator {
-    pub(crate) field: Playfield,
+    dim: (usize, usize),
     pos: (usize, usize),
     dir: Direction,
 }
 
 impl PlayfieldNavigator {
-    /// Create a new navigator for the given playfield.
+    /// Create a new navigator for the given dimensions.
     ///
     /// Initially, we are looking right from position `(0, 0)`.
-    pub fn new(field: Playfield) -> Self {
+    pub fn new(dim: (usize, usize)) -> Self {
         Self {
-            field,
+            dim,
             pos: (0, 0),
             dir: Direction::Right,
         }
@@ -109,11 +104,11 @@ impl PlayfieldNavigator {
                 if self.pos.1 > 0 {
                     self.pos.1 -= 1
                 } else {
-                    self.pos.1 = self.field.height() - 1
+                    self.pos.1 = self.dim.1 - 1
                 }
             }
             Direction::Down => {
-                if self.pos.1 < self.field.height() - 1 {
+                if self.pos.1 < self.dim.1 - 1 {
                     self.pos.1 += 1
                 } else {
                     self.pos.1 = 0
@@ -123,11 +118,11 @@ impl PlayfieldNavigator {
                 if self.pos.0 > 0 {
                     self.pos.0 -= 1
                 } else {
-                    self.pos.0 = self.field.width() - 1
+                    self.pos.0 = self.dim.0 - 1
                 }
             }
             Direction::Right => {
-                if self.pos.0 < self.field.width() - 1 {
+                if self.pos.0 < self.dim.0 - 1 {
                     self.pos.0 += 1
                 } else {
                     self.pos.0 = 0
@@ -136,14 +131,14 @@ impl PlayfieldNavigator {
         }
     }
 
-    /// Return the value of the current field.
-    pub fn get(&self) -> u8 {
-        self.field[self.pos]
-    }
-
     /// Turn into the given direction.
     pub fn turn(&mut self, dir: Direction) {
         self.dir = dir
+    }
+
+    /// Return the current position of the navigator.
+    pub fn pos(&self) -> (usize, usize) {
+        self.pos
     }
 }
 

@@ -2,6 +2,9 @@ use crate::playfield::*;
 use rand::distributions;
 use std::io;
 
+/// The current mode of the program
+///
+/// A program is either executing normally, parsing a string or has terminated.
 #[derive(Debug, PartialEq)]
 enum Mode {
     Execute,
@@ -9,39 +12,28 @@ enum Mode {
     Terminate,
 }
 
+/// The stack of an execution.
+pub type Stack = Vec<i64>;
+
 /// A Befunge interpreter
 pub struct Interpreter {
+    field: Playfield,
     nav: PlayfieldNavigator,
-    stack: Vec<i64>,
+    stack: Stack,
     mode: Mode,
 }
 
 impl Interpreter {
     /// Create a new interpreter for the given playfield.
     pub fn new(field: Playfield) -> Self {
+        let dimensions = field.dimensions();
+
         Self {
-            nav: PlayfieldNavigator::new(field),
+            field,
+            nav: PlayfieldNavigator::new(dimensions),
             stack: Vec::new(),
             mode: Mode::Execute,
         }
-    }
-
-    /// Run the program.
-    pub fn run(&mut self) {
-        while self.mode != Mode::Terminate {
-            self.step();
-        }
-    }
-
-    /// Execute one step of the program.
-    pub fn step(&mut self) {
-        self.mode = match self.mode {
-            Mode::Execute => self.execute_step(self.nav.get()),
-            Mode::String => self.string_step(self.nav.get()),
-            Mode::Terminate => return,
-        };
-
-        self.nav.step();
     }
 
     fn execute_step(&mut self, c: u8) -> Mode {
@@ -175,9 +167,7 @@ impl Interpreter {
             ',' => print!("{}", self.stack.pop().unwrap_or(0) as u8 as char),
 
             // Bridge: Skip next cell
-            '#' => {
-                self.nav.step();
-            }
+            '#' => self.nav.step(),
 
             // A "put" call (a way to store a value for later use).
             //
@@ -188,7 +178,7 @@ impl Interpreter {
                 let x = self.stack.pop().unwrap_or(0);
                 let v = self.stack.pop().unwrap_or(0);
 
-                self.nav.field[(x as usize, y as usize)] = v as u8
+                self.field[(x as usize, y as usize)] = v as u8
             }
 
             // A "get" call (a way to retrieve data in storage).
@@ -197,8 +187,9 @@ impl Interpreter {
             'g' => {
                 let y = self.stack.pop().unwrap_or(0);
                 let x = self.stack.pop().unwrap_or(0);
+                let v = self.field[(x as usize, y as usize)];
 
-                self.stack.push(i64::from(self.nav.field[(x as usize, y as usize)]))
+                self.stack.push(i64::from(v))
             }
 
             // Ask user for a number and push it
@@ -237,6 +228,24 @@ impl Interpreter {
         self.stack.push(i64::from(c));
 
         Mode::String
+    }
+}
+
+impl Iterator for Interpreter {
+    type Item = ();
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let val = self.field[self.nav.pos()];
+
+        self.mode = match self.mode {
+            Mode::Execute => self.execute_step(val),
+            Mode::String => self.string_step(val),
+            Mode::Terminate => return None,
+        };
+
+        self.nav.step();
+
+        Some(())
     }
 }
 
