@@ -12,7 +12,7 @@ enum Mode {
 /// A Befunge interpreter
 pub struct Interpreter {
     nav: PlayfieldNavigator,
-    stack: Vec<u8>,
+    stack: Vec<i64>,
     mode: Mode,
 }
 
@@ -47,51 +47,51 @@ impl Interpreter {
     fn execute_step(&mut self, c: u8) -> Mode {
         match c as char {
             // Push this number on the stack
-            '0'...'9' => self.stack.push(c - 0x30),
+            '0'...'9' => self.stack.push(i64::from(c - 0x30)),
 
             // Addition: Pop a and b, then push a+b
             '+' => {
-                let a = self.stack.pop().unwrap();
-                let b = self.stack.pop().unwrap();
+                let a = self.stack.pop().unwrap_or(0);
+                let b = self.stack.pop().unwrap_or(0);
 
                 self.stack.push(a + b);
             }
 
             // Subtraction: Pop a and b, then push b-a
             '-' => {
-                let a = self.stack.pop().unwrap();
-                let b = self.stack.pop().unwrap();
+                let a = self.stack.pop().unwrap_or(0);
+                let b = self.stack.pop().unwrap_or(0);
 
                 self.stack.push(b - a);
             }
 
             // Multiplication: Pop a and b, then push a*b
             '*' => {
-                let a = self.stack.pop().unwrap();
-                let b = self.stack.pop().unwrap();
+                let a = self.stack.pop().unwrap_or(0);
+                let b = self.stack.pop().unwrap_or(0);
 
                 self.stack.push(a * b);
             }
 
             // Integer division: Pop a and b, then push b/a, rounded towards 0
             '/' => {
-                let a = self.stack.pop().unwrap();
-                let b = self.stack.pop().unwrap();
+                let a = self.stack.pop().unwrap_or(0);
+                let b = self.stack.pop().unwrap_or(0);
 
                 self.stack.push(b / a);
             }
 
             // Modulo: Pop a and b, then push the remainder of the integer division of b/a
             '%' => {
-                let a = self.stack.pop().unwrap();
-                let b = self.stack.pop().unwrap();
+                let a = self.stack.pop().unwrap_or(0);
+                let b = self.stack.pop().unwrap_or(0);
 
                 self.stack.push(b % a);
             }
 
             // Logical NOT: Pop a value. If the value is zero, push 1; otherwise, push zero.
             '!' => {
-                if self.stack.pop().unwrap() == 0 {
+                if self.stack.pop().unwrap_or(0) == 0 {
                     self.stack.push(1)
                 } else {
                     self.stack.push(0)
@@ -100,8 +100,8 @@ impl Interpreter {
 
             // Greater than: Pop a and b, then push 1 if b>a, otherwise zero.
             '`' => {
-                let a = self.stack.pop().unwrap();
-                let b = self.stack.pop().unwrap();
+                let a = self.stack.pop().unwrap_or(0);
+                let b = self.stack.pop().unwrap_or(0);
 
                 if b > a {
                     self.stack.push(1)
@@ -127,7 +127,7 @@ impl Interpreter {
 
             // Pop a value; move right if value=0, left otherwise
             '_' => {
-                if self.stack.pop().unwrap() == 0 {
+                if self.stack.pop().unwrap_or(0) == 0 {
                     self.nav.turn(Direction::Right)
                 } else {
                     self.nav.turn(Direction::Left)
@@ -136,7 +136,7 @@ impl Interpreter {
 
             // Pop a value; move down if value=0, up otherwise
             '|' => {
-                if self.stack.pop().unwrap() == 0 {
+                if self.stack.pop().unwrap_or(0) == 0 {
                     self.nav.turn(Direction::Down)
                 } else {
                     self.nav.turn(Direction::Up)
@@ -148,7 +148,7 @@ impl Interpreter {
 
             // Duplicate value on top of the stack
             ':' => {
-                let v = self.stack.pop().unwrap();
+                let v = self.stack.pop().unwrap_or(0);
 
                 self.stack.push(v);
                 self.stack.push(v);
@@ -156,8 +156,8 @@ impl Interpreter {
 
             // Swap two values on top of the stack
             '\\' => {
-                let a = self.stack.pop().unwrap();
-                let b = self.stack.pop().unwrap();
+                let a = self.stack.pop().unwrap_or(0);
+                let b = self.stack.pop().unwrap_or(0);
 
                 self.stack.push(a);
                 self.stack.push(b);
@@ -165,14 +165,14 @@ impl Interpreter {
 
             // Pop value from the stack and discard it
             '$' => {
-                self.stack.pop().unwrap();
+                self.stack.pop().unwrap_or(0);
             }
 
             // Pop value and output as an integer followed by a space
-            '.' => print!("{} ", self.stack.pop().unwrap()),
+            '.' => print!("{} ", self.stack.pop().unwrap_or(0)),
 
             // Pop value and output as ASCII character
-            ',' => print!("{}", self.stack.pop().unwrap() as char),
+            ',' => print!("{}", self.stack.pop().unwrap_or(0) as u8 as char),
 
             // Bridge: Skip next cell
             '#' => {
@@ -184,21 +184,21 @@ impl Interpreter {
             // Pop y, x, and v, then change the character at (x,y) in the program to the character
             // with ASCII value v
             'p' => {
-                let y = self.stack.pop().unwrap();
-                let x = self.stack.pop().unwrap();
-                let v = self.stack.pop().unwrap();
+                let y = self.stack.pop().unwrap_or(0);
+                let x = self.stack.pop().unwrap_or(0);
+                let v = self.stack.pop().unwrap_or(0);
 
-                self.nav.field[(x as usize, y as usize)] = v
+                self.nav.field[(x as usize, y as usize)] = v as u8
             }
 
             // A "get" call (a way to retrieve data in storage).
             //
             // Pop y and x, then push ASCII value of the character at that position in the program
             'g' => {
-                let y = self.stack.pop().unwrap();
-                let x = self.stack.pop().unwrap();
+                let y = self.stack.pop().unwrap_or(0);
+                let x = self.stack.pop().unwrap_or(0);
 
-                self.stack.push(self.nav.field[(x as usize, y as usize)])
+                self.stack.push(i64::from(self.nav.field[(x as usize, y as usize)]))
             }
 
             // Ask user for a number and push it
@@ -207,7 +207,7 @@ impl Interpreter {
 
                 io::stdin().read_line(&mut input).unwrap();
 
-                self.stack.push(input.parse().unwrap())
+                self.stack.push(input.trim().parse().unwrap())
             }
 
             // Ask user for a character and push its ASCII value
@@ -216,7 +216,7 @@ impl Interpreter {
 
                 io::stdin().read_line(&mut input).unwrap();
 
-                self.stack.extend(input.trim().bytes())
+                self.stack.extend(input.trim().bytes().map(i64::from))
             }
 
             // End program
@@ -234,7 +234,7 @@ impl Interpreter {
             return Mode::Execute;
         }
 
-        self.stack.push(c);
+        self.stack.push(i64::from(c));
 
         Mode::String
     }
