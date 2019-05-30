@@ -66,6 +66,7 @@ impl fmt::Display for Playfield {
 }
 
 /// The four movement directions
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Direction {
     Up,
     Down,
@@ -140,6 +141,11 @@ impl PlayfieldNavigator {
     pub fn pos(&self) -> (usize, usize) {
         self.pos
     }
+
+    /// Return the current direction the navigator is looking in.
+    pub fn dir(&self) -> Direction {
+        self.dir
+    }
 }
 
 #[cfg(test)]
@@ -150,9 +156,7 @@ mod tests {
     fn playfield() {
         let mut playfield = Playfield::new("abc\nde\nx yz\n");
 
-        assert_eq!(4, playfield.width());
-        assert_eq!(3, playfield.height());
-
+        assert_eq!((4, 3), playfield.dimensions());
         assert_eq!("abc \nde  \nx yz\n", playfield.to_string());
 
         assert_eq!('a', playfield[(0, 0)] as char);
@@ -165,69 +169,60 @@ mod tests {
 
     #[test]
     fn playfield_navigator() {
-        let playfield = Playfield::new("abc\nde\nx yz\n");
-        let mut navigator = PlayfieldNavigator::new(playfield);
+        let mut navigator = PlayfieldNavigator::new((4, 3));
 
-        assert_eq!('a', navigator.get() as char);
-
-        navigator.step();
-
-        assert_eq!('b', navigator.get() as char);
+        assert_eq!(Direction::Right, navigator.dir());
+        assert_eq!((0, 0), navigator.pos());
 
         navigator.step();
 
-        assert_eq!('c', navigator.get() as char);
+        assert_eq!((1, 0), navigator.pos());
 
         navigator.step();
 
-        assert_eq!(' ', navigator.get() as char);
+        assert_eq!((2, 0), navigator.pos());
 
         navigator.step();
 
-        assert_eq!('a', navigator.get() as char);
+        assert_eq!((3, 0), navigator.pos());
+
+        navigator.step();
+
+        assert_eq!((0, 0), navigator.pos());
 
         navigator.turn(Direction::Down);
 
-        assert_eq!('a', navigator.get() as char);
+        assert_eq!(Direction::Down, navigator.dir());
+        assert_eq!((0, 0), navigator.pos());
 
         navigator.step();
 
-        assert_eq!('d', navigator.get() as char);
+        assert_eq!((0, 1), navigator.pos());
 
         navigator.step();
 
-        assert_eq!('x', navigator.get() as char);
+        assert_eq!((0, 2), navigator.pos());
 
         navigator.step();
 
-        assert_eq!('a', navigator.get() as char);
+        assert_eq!((0, 0), navigator.pos());
 
         navigator.turn(Direction::Left);
 
-        assert_eq!('a', navigator.get() as char);
+        assert_eq!(Direction::Left, navigator.dir());
+        assert_eq!((0, 0), navigator.pos());
 
         navigator.step();
 
-        assert_eq!(' ', navigator.get() as char);
+        assert_eq!((3, 0), navigator.pos());
 
         navigator.turn(Direction::Up);
 
-        assert_eq!(' ', navigator.get() as char);
+        assert_eq!(Direction::Up, navigator.dir());
+        assert_eq!((3, 0), navigator.pos());
 
         navigator.step();
 
-        assert_eq!('z', navigator.get() as char);
-    }
-
-    #[test]
-    fn playfield_navigator_modify() {
-        let playfield = Playfield::new("abc\nde\nx yz\n");
-        let mut navigator = PlayfieldNavigator::new(playfield);
-
-        assert_eq!('a', navigator.get() as char);
-
-        navigator.field[(0, 0)] = 0x62;
-
-        assert_eq!('b', navigator.get() as char);
+        assert_eq!((3, 2), navigator.pos());
     }
 }

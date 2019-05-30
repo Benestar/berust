@@ -5,8 +5,8 @@ use std::io;
 /// The current mode of the program
 ///
 /// A program is either executing normally, parsing a string or has terminated.
-#[derive(Debug, PartialEq)]
-enum Mode {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Mode {
     Execute,
     String,
     Terminate,
@@ -34,6 +34,26 @@ impl Interpreter {
             stack: Vec::new(),
             mode: Mode::Execute,
         }
+    }
+
+    /// Get a reference to the playfield.
+    pub fn field(&self) -> &Playfield {
+        &self.field
+    }
+
+    /// Get a reference to the navigator.
+    pub fn nav(&self) -> &PlayfieldNavigator {
+        &self.nav
+    }
+
+    /// Get a reference to the stack.
+    pub fn stack(&self) -> &Stack {
+        &self.stack
+    }
+
+    /// Get the current mode.
+    pub fn mode(&self) -> Mode {
+        self.mode
     }
 
     fn execute_step(&mut self, c: u8) -> Mode {
@@ -157,7 +177,7 @@ impl Interpreter {
 
             // Pop value from the stack and discard it
             '$' => {
-                self.stack.pop().unwrap_or(0);
+                self.stack.pop();
             }
 
             // Pop value and output as an integer followed by a space
@@ -198,7 +218,7 @@ impl Interpreter {
 
                 io::stdin().read_line(&mut input).unwrap();
 
-                self.stack.push(input.trim().parse().unwrap())
+                self.stack.push(input.trim().parse().unwrap_or(0))
             }
 
             // Ask user for a character and push its ASCII value
@@ -265,7 +285,7 @@ mod tests {
     use super::*;
     use crate::playfield::Playfield;
 
-    fn test_program(input: &str, execution: Vec<(Mode, Vec<u8>)>) {
+    fn test_program(input: &str, execution: Vec<(Mode, Stack)>) {
         let playfield = Playfield::new(input);
         let mut interpreter = Interpreter::new(playfield);
 
@@ -273,7 +293,7 @@ mod tests {
             assert_eq!(mode, interpreter.mode);
             assert_eq!(stack, interpreter.stack);
 
-            interpreter.step();
+            interpreter.next();
         }
     }
 
