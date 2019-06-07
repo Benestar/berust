@@ -11,7 +11,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        println!("Usage: ./berust <file>");
+        println!("Usage: ./befunge <file>");
 
         process::exit(1);
     }
