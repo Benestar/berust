@@ -273,7 +273,10 @@ where
             '@' => return Mode::Terminate,
 
             // No-op. Does nothing
-            _ => (),
+            ' ' => (),
+
+            // Illegal characters
+            _ => panic!("Illegal character: {}", c as char),
         }
 
         Mode::Execute
@@ -587,17 +590,17 @@ mod tests {
         );
 
         test_program(
-            "1\"xy",
+            "1\"23",
             "",
             "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![1]),
                 (Mode::String, vec![1]),
-                (Mode::String, vec![1, 0x78]),
-                (Mode::String, vec![1, 0x78, 0x79]),
-                (Mode::String, vec![1, 0x78, 0x79, 0x31]),
-                (Mode::Execute, vec![1, 0x78, 0x79, 0x31]),
+                (Mode::String, vec![1, 0x32]),
+                (Mode::String, vec![1, 0x32, 0x33]),
+                (Mode::String, vec![1, 0x32, 0x33, 0x31]),
+                (Mode::Execute, vec![1, 0x32, 0x33, 0x31]),
             ],
         );
 
@@ -797,6 +800,19 @@ mod tests {
                 (Mode::Execute, vec![5]),
                 (Mode::Terminate, vec![5]),
                 (Mode::Terminate, vec![5]),
+            ],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Illegal character: x")]
+    fn interpret_illegal() {
+        test_program(
+            "x",
+            "",
+            "",
+            vec![
+                (Mode::Execute, vec![]),
             ],
         );
     }
