@@ -1,7 +1,7 @@
-extern crate befunge;
+extern crate berust;
 
-use befunge::interpreter::Interpreter;
-use befunge::playfield::Playfield;
+use berust::interpreter::Interpreter;
+use berust::playfield::Playfield;
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -11,7 +11,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        println!("Usage: ./befunge <file>");
+        println!("Usage: ./berust <file>");
 
         process::exit(1);
     }
