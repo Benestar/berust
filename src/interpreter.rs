@@ -1,6 +1,6 @@
 use crate::playfield::*;
 use rand::distributions;
-use std::io;
+use std::io::{BufReader, BufRead, Read, Write};
 
 /// The current mode of the program
 ///
@@ -15,21 +15,72 @@ pub enum Mode {
 /// The stack of an execution.
 pub type Stack = Vec<i64>;
 
+pub struct InputOutput<R, W> {
+    reader: BufReader<R>,
+    writer: W,
+}
+
+impl<R, W> InputOutput<R, W>
+where
+    R: Read,
+    W: Write,
+{
+    pub fn new(reader: R, writer: W) -> Self {
+        let reader = BufReader::new(reader);
+
+        Self { reader, writer }
+    }
+
+    fn write_int(&mut self, val: i64) {
+        write!(self.writer, "{} ", val).unwrap()
+    }
+
+    fn write_ascii(&mut self, val: i64) {
+        write!(self.writer, "{}", val as u8 as char).unwrap()
+    }
+
+    fn read_int(&mut self) -> i64 {
+        let mut input = String::new();
+
+        if self.reader.read_line(&mut input).is_err() {
+            return 0;
+        }
+
+        input.trim().parse().unwrap_or(0)
+    }
+
+    fn read_ascii(&mut self) -> i64 {
+        let mut buf = [0; 1];
+
+        if self.reader.read_exact(&mut buf).is_err() {
+            return -1;
+        }
+
+        i64::from(buf[0])
+    }
+}
+
 /// A Befunge interpreter
-pub struct Interpreter {
+pub struct Interpreter<R, W> {
     field: Playfield,
+    io: InputOutput<R, W>,
     nav: PlayfieldNavigator,
     stack: Stack,
     mode: Mode,
 }
 
-impl Interpreter {
+impl<R, W> Interpreter<R, W>
+where
+    R: Read,
+    W: Write,
+{
     /// Create a new interpreter for the given playfield.
-    pub fn new(field: Playfield) -> Self {
+    pub fn new(field: Playfield, io: InputOutput<R, W>) -> Self {
         let dimensions = field.dimensions();
 
         Self {
             field,
+            io,
             nav: PlayfieldNavigator::new(dimensions),
             stack: Vec::new(),
             mode: Mode::Execute,
@@ -181,10 +232,10 @@ impl Interpreter {
             }
 
             // Pop value and output as an integer followed by a space
-            '.' => print!("{} ", self.stack.pop().unwrap_or(0)),
+            '.' => self.io.write_int(self.stack.pop().unwrap_or(0)),
 
             // Pop value and output as ASCII character
-            ',' => print!("{}", self.stack.pop().unwrap_or(0) as u8 as char),
+            ',' => self.io.write_ascii(self.stack.pop().unwrap_or(0)),
 
             // Bridge: Skip next cell
             '#' => self.nav.step(),
@@ -213,22 +264,10 @@ impl Interpreter {
             }
 
             // Ask user for a number and push it
-            '&' => {
-                let mut input = String::new();
-
-                io::stdin().read_line(&mut input).unwrap();
-
-                self.stack.push(input.trim().parse().unwrap_or(0))
-            }
+            '&' => self.stack.push(self.io.read_int()),
 
             // Ask user for a character and push its ASCII value
-            '~' => {
-                let mut input = String::new();
-
-                io::stdin().read_line(&mut input).unwrap();
-
-                self.stack.extend(input.trim().bytes().map(i64::from))
-            }
+            '~' => self.stack.push(self.io.read_ascii()),
 
             // End program
             '@' => return Mode::Terminate,
@@ -251,7 +290,11 @@ impl Interpreter {
     }
 }
 
-impl Iterator for Interpreter {
+impl<R, W> Iterator for Interpreter<R, W>
+where
+    R: Read,
+    W: Write,
+{
     type Item = ();
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -285,9 +328,13 @@ mod tests {
     use super::*;
     use crate::playfield::Playfield;
 
-    fn test_program(input: &str, execution: Vec<(Mode, Stack)>) {
-        let playfield = Playfield::new(input);
-        let mut interpreter = Interpreter::new(playfield);
+    fn test_program(field: &str, input: &str, output: &str, execution: Vec<(Mode, Stack)>) {
+        let reader = input.bytes().collect::<Vec<_>>();
+        let writer = Vec::new();
+
+        let playfield = Playfield::new(field);
+        let io = InputOutput::new(&reader[..], writer);
+        let mut interpreter = Interpreter::new(playfield, io);
 
         for (mode, stack) in execution {
             assert_eq!(mode, interpreter.mode);
@@ -295,12 +342,16 @@ mod tests {
 
             interpreter.next();
         }
+
+        assert_eq!(output.bytes().collect::<Vec<_>>(), interpreter.io.writer);
     }
 
     #[test]
     fn interpret_digits() {
         test_program(
             "0123456789",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![0]),
@@ -321,6 +372,8 @@ mod tests {
     fn interpret_arithmetic() {
         test_program(
             "73+",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![7]),
@@ -331,6 +384,8 @@ mod tests {
 
         test_program(
             "73-",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![7]),
@@ -341,6 +396,8 @@ mod tests {
 
         test_program(
             "73*",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![7]),
@@ -351,6 +408,8 @@ mod tests {
 
         test_program(
             "73/",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![7]),
@@ -361,6 +420,8 @@ mod tests {
 
         test_program(
             "73%",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![7]),
@@ -374,6 +435,8 @@ mod tests {
     fn interpret_logic() {
         test_program(
             "0!",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![0]),
@@ -383,6 +446,8 @@ mod tests {
 
         test_program(
             "5!",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![5]),
@@ -392,6 +457,8 @@ mod tests {
 
         test_program(
             "73`",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![7]),
@@ -402,6 +469,8 @@ mod tests {
 
         test_program(
             "45`",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![4]),
@@ -415,6 +484,8 @@ mod tests {
     fn interpret_direction() {
         test_program(
             "v\n3\n>4",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![]),
@@ -426,6 +497,8 @@ mod tests {
 
         test_program(
             "<@^\n  @\n  5",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![]),
@@ -434,10 +507,10 @@ mod tests {
             ],
         );
 
-        // TODO
-
         test_program(
             "?5@5\n5\n@\n5",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![]),
@@ -450,6 +523,8 @@ mod tests {
     fn interpret_controlflow() {
         test_program(
             "0_5",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![0]),
@@ -460,6 +535,8 @@ mod tests {
 
         test_program(
             "3_5",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![3]),
@@ -470,6 +547,8 @@ mod tests {
 
         test_program(
             "0|\n 5",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![0]),
@@ -480,6 +559,8 @@ mod tests {
 
         test_program(
             "3|\n 5\n 4",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![3]),
@@ -493,6 +574,8 @@ mod tests {
     fn interpret_string() {
         test_program(
             "\"abc\"",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::String, vec![]),
@@ -505,6 +588,8 @@ mod tests {
 
         test_program(
             "1\"xy",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![1]),
@@ -518,6 +603,8 @@ mod tests {
 
         test_program(
             "v\n\"\na\nb\n\"",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![]),
@@ -533,6 +620,8 @@ mod tests {
     fn interpret_stack_manipulation() {
         test_program(
             "1:",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![1]),
@@ -542,6 +631,8 @@ mod tests {
 
         test_program(
             "12\\",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![1]),
@@ -552,6 +643,8 @@ mod tests {
 
         test_program(
             "1$",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![1]),
@@ -562,10 +655,10 @@ mod tests {
 
     #[test]
     fn interpret_output() {
-        // TODO
-
         test_program(
             "1.",
+            "",
+            "1 ",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![1]),
@@ -574,12 +667,18 @@ mod tests {
         );
 
         test_program(
-            "\"a\",",
+            "\"a\",25*,",
+            "",
+            "a\n",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::String, vec![]),
                 (Mode::String, vec![0x61]),
                 (Mode::Execute, vec![0x61]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![2]),
+                (Mode::Execute, vec![2, 5]),
+                (Mode::Execute, vec![10]),
                 (Mode::Execute, vec![]),
             ],
         );
@@ -589,6 +688,8 @@ mod tests {
     fn interpret_bridge() {
         test_program(
             "#01",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![]),
@@ -599,18 +700,87 @@ mod tests {
 
     #[test]
     fn interpret_field_manipulation() {
-        // TODO
+        test_program(
+            "30g5",
+            "",
+            "",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![3]),
+                (Mode::Execute, vec![3, 0]),
+                (Mode::Execute, vec![0x35]),
+                (Mode::Execute, vec![0x35, 5]),
+            ],
+        );
+
+        test_program(
+            "77*40p1",
+            "",
+            "",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![7]),
+                (Mode::Execute, vec![7, 7]),
+                (Mode::Execute, vec![49]),
+                (Mode::Execute, vec![49, 4]),
+                (Mode::Execute, vec![49, 4, 0]),
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![1]),
+            ],
+        );
     }
 
     #[test]
     fn interpret_user_input() {
-        // TODO
+        test_program(
+            "&",
+            "4\n",
+            "",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![4]),
+            ],
+        );
+
+        test_program(
+            "&",
+            "abc\n",
+            "",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![0]),
+            ],
+        );
+
+        test_program(
+            "&",
+            "",
+            "",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![0]),
+            ],
+        );
+
+        test_program(
+            "~~~",
+            "ab",
+            "",
+            vec![
+                (Mode::Execute, vec![]),
+                (Mode::Execute, vec![0x61]),
+                (Mode::Execute, vec![0x61, 0x62]),
+                (Mode::Execute, vec![0x61, 0x62, -1]),
+            ],
+        );
     }
 
     #[test]
     fn interpret_termination() {
         test_program(
             "@",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Terminate, vec![]),
@@ -620,6 +790,8 @@ mod tests {
 
         test_program(
             "5@",
+            "",
+            "",
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![5]),

@@ -1,6 +1,6 @@
 extern crate berust;
 
-use berust::interpreter::Interpreter;
+use berust::interpreter::{InputOutput, Interpreter};
 use berust::playfield::Playfield;
 use std::env;
 use std::fs::File;
@@ -22,7 +22,9 @@ fn main() {
     file.read_to_string(&mut contents).unwrap();
 
     let playfield = Playfield::new(&contents);
-    let interpreter = Interpreter::new(playfield);
+    let io = InputOutput::new(std::io::stdin(), std::io::stdout());
+
+    let interpreter = Interpreter::new(playfield, io);
 
     for _ in interpreter {}
 }
