@@ -15,6 +15,7 @@ pub enum Mode {
 /// The stack of an execution.
 pub type Stack = Vec<i64>;
 
+/// A provider of input and output operations.
 pub struct InputOutput<R, W> {
     reader: BufReader<R>,
     writer: W,
@@ -29,6 +30,14 @@ where
         let reader = BufReader::new(reader);
 
         Self { reader, writer }
+    }
+
+    pub fn reader(&self) -> &R {
+        self.reader.get_ref()
+    }
+
+    pub fn writer(&self) -> &W {
+        &self.writer
     }
 
     fn write_int(&mut self, val: i64) {
@@ -90,6 +99,11 @@ where
     /// Get a reference to the playfield.
     pub fn field(&self) -> &Playfield {
         &self.field
+    }
+
+    /// Get a reference to the input and output provider.
+    pub fn io(&self) -> &InputOutput<R, W> {
+        &self.io
     }
 
     /// Get a reference to the navigator.
@@ -306,8 +320,12 @@ where
         self.mode = match self.mode {
             Mode::Execute => self.execute_step(val),
             Mode::String => self.string_step(val),
-            Mode::Terminate => return None,
+            Mode::Terminate => Mode::Terminate,
         };
+
+        if let Mode::Terminate = self.mode {
+            return None;
+        }
 
         self.nav.step();
 
