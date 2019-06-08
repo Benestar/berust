@@ -1,5 +1,7 @@
 use std::fmt;
+use std::iter;
 use std::ops;
+use std::str;
 
 /// A two-dimensional matrix of characters
 #[derive(Debug)]
@@ -17,13 +19,13 @@ impl Playfield {
     /// the input string.
     pub fn new(input: &str) -> Self {
         let lines: Vec<&str> = input.lines().collect();
-        let width = lines.iter().map(|s| s.chars().count()).max().unwrap();
+        let width = lines.iter().map(|s| s.bytes().count()).max().unwrap();
         let height = lines.len();
 
         let mut field = Vec::with_capacity(width * height);
 
         for l in lines {
-            field.extend(format!("{:1$}", l, width).bytes());
+            field.extend(l.bytes().chain(iter::repeat(b' ')).take(width));
         }
 
         Self {
@@ -36,6 +38,11 @@ impl Playfield {
     /// Return the dimensions of this playfield.
     pub fn dimensions(&self) -> (usize, usize) {
         (self.width, self.height)
+    }
+
+    /// Return an iterator over the lines of this playfield.
+    pub fn lines(&self) -> impl Iterator<Item = &[u8]> {
+        self.field.chunks(self.width)
     }
 }
 
@@ -55,10 +62,8 @@ impl ops::IndexMut<(usize, usize)> for Playfield {
 
 impl fmt::Display for Playfield {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for r in 0..self.height {
-            let slice = &self.field[(r * self.width)..(r * self.width + self.width)];
-
-            writeln!(f, "{}", std::str::from_utf8(slice).unwrap())?;
+        for l in self.lines() {
+            writeln!(f, "{}", str::from_utf8(l).unwrap())?;
         }
 
         Ok(())

@@ -1,6 +1,6 @@
 use crate::playfield::*;
 use rand::distributions;
-use std::io::{BufReader, BufRead, Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 
 /// The current mode of the program
 ///
@@ -739,30 +739,21 @@ mod tests {
             "&",
             "4\n",
             "",
-            vec![
-                (Mode::Execute, vec![]),
-                (Mode::Execute, vec![4]),
-            ],
+            vec![(Mode::Execute, vec![]), (Mode::Execute, vec![4])],
         );
 
         test_program(
             "&",
             "abc\n",
             "",
-            vec![
-                (Mode::Execute, vec![]),
-                (Mode::Execute, vec![0]),
-            ],
+            vec![(Mode::Execute, vec![]), (Mode::Execute, vec![0])],
         );
 
         test_program(
             "&",
             "",
             "",
-            vec![
-                (Mode::Execute, vec![]),
-                (Mode::Execute, vec![0]),
-            ],
+            vec![(Mode::Execute, vec![]), (Mode::Execute, vec![0])],
         );
 
         test_program(
@@ -807,13 +798,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "Illegal character: x")]
     fn interpret_illegal() {
-        test_program(
-            "x",
-            "",
-            "",
-            vec![
-                (Mode::Execute, vec![]),
-            ],
-        );
+        test_program("x", "", "", vec![(Mode::Execute, vec![])]);
     }
 }
