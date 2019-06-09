@@ -7,8 +7,12 @@ use std::cmp;
 use std::env;
 use std::fs::File;
 use std::io;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Write};
 use std::process;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
@@ -18,6 +22,18 @@ use tui::layout::{Alignment, Constraint, Direction, Layout};
 use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Paragraph, Text, Widget};
 use tui::Terminal;
+
+enum Event<I> {
+    Input(I),
+    Tick,
+}
+
+enum InterpreterMessage {
+    TogglePause,
+    Slower,
+    Faster,
+    Step,
+}
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -38,26 +54,40 @@ fn main() -> io::Result<()> {
     let output = Vec::new();
     let io = InputOutput::new(input, output);
 
-    let mut interpreter = Interpreter::new(playfield, io);
+    let interpreter = Interpreter::new(playfield, io);
 
     // ---
 
-    let mut running = true;
-    let mut delay = 50;
+    let int = Arc::new(Mutex::new(interpreter));
+
+    let int2 = Arc::clone(&int);
+
+    let (send, receiver) = mpsc::channel();
+    let (int_send, int_receive) = mpsc::channel();
+
+    let send2 = mpsc::Sender::clone(&send);
+
+    thread::spawn(move || {
+        interpreter_handler(send2, int_receive, int2);
+    });
+
+    thread::spawn(move || {
+        input_handler(send);
+    });
 
     // ---
 
     let stdout = io::stdout().into_raw_mode()?;
-    let stdin = termion::async_stdin();
-    let mut keys = stdin.keys();
     let backend = TermionBackend::new(AlternateScreen::from(stdout));
     let mut terminal = Terminal::new(backend)?;
 
     terminal.hide_cursor()?;
 
-    'outer: loop {
+    loop {
         terminal.draw(|mut f| {
             let mut text = Vec::new();
+
+            let interpreter = int.lock().unwrap();
 
             for (y, l) in interpreter.field().lines().enumerate() {
                 for (x, c) in l.chunks(1).enumerate() {
@@ -106,7 +136,7 @@ fn main() -> io::Result<()> {
                 .margin(1)
                 .constraints(
                     [
-                        Constraint::Length(interpreter.field().dimensions().0 as u16 + 4),
+                        Constraint::Min(interpreter.field().dimensions().0 as u16 + 4),
                         Constraint::Percentage(50),
                     ]
                     .as_ref(),
@@ -126,13 +156,7 @@ fn main() -> io::Result<()> {
 
             let right = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(80),
-                        Constraint::Percentage(20),
-                    ]
-                    .as_ref(),
-                )
+                .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
                 .split(cols[1]);
 
             Paragraph::new(text.iter())
@@ -167,23 +191,66 @@ fn main() -> io::Result<()> {
                 .render(&mut f, right[1]);
         })?;
 
-        while let Some(Ok(k)) = keys.next() {
+        if let Event::Input(k) = receiver.recv().unwrap() {
             match k {
-                Key::Char('q') => break 'outer,
-                Key::Char('p') => running = !running,
-                Key::Char('n') if !running => interpreter.next().unwrap_or(()),
-                Key::Left => delay = cmp::min(delay + (delay / 5), 1000),
-                Key::Right => delay = cmp::max(delay - (delay / 5), 10),
+                Key::Char('q') => break,
+                Key::Char('p') => int_send.send(InterpreterMessage::TogglePause).unwrap(),
+                Key::Char('n') => int_send.send(InterpreterMessage::Step).unwrap(),
+                Key::Left => int_send.send(InterpreterMessage::Slower).unwrap(),
+                Key::Right => int_send.send(InterpreterMessage::Faster).unwrap(),
+                _ => (),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn interpreter_handler(
+    sender: mpsc::Sender<Event<Key>>,
+    receiver: mpsc::Receiver<InterpreterMessage>,
+    interpreter: Arc<Mutex<Interpreter<impl Read, impl Write>>>,
+) {
+    let mut delay = 100;
+    let mut running = true;
+
+    loop {
+        let start = Instant::now();
+
+        for msg in receiver.try_iter() {
+            match msg {
+                InterpreterMessage::TogglePause => running = !running,
+                InterpreterMessage::Slower => delay = cmp::min(delay + (delay / 5), 1000),
+                InterpreterMessage::Faster => delay = cmp::max(delay - (delay / 5), 10),
+                InterpreterMessage::Step if !running => {
+                    interpreter.lock().unwrap().next();
+
+                    sender.send(Event::Tick).unwrap();
+                }
                 _ => (),
             }
         }
 
         if running {
-            interpreter.next();
+            interpreter.lock().unwrap().next();
+
+            sender.send(Event::Tick).unwrap();
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(delay));
+        if let Some(d) = Duration::from_millis(delay).checked_sub(start.elapsed()) {
+            thread::sleep(d);
+        }
     }
+}
 
-    Ok(())
+fn input_handler(
+    sender: mpsc::Sender<Event<Key>>
+) {
+    let stdin = io::stdin();
+
+    for result in stdin.keys() {
+        if let Ok(key) = result {
+            sender.send(Event::Input(key)).unwrap();
+        }
+    }
 }
