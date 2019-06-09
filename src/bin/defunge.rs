@@ -3,17 +3,18 @@ extern crate tui;
 
 use berust::interpreter::{InputOutput, Interpreter};
 use berust::playfield::Playfield;
+use std::cmp;
 use std::env;
 use std::fs::File;
 use std::io;
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::process;
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::screen::AlternateScreen;
 use tui::backend::TermionBackend;
-use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use tui::layout::{Alignment, Constraint, Direction, Layout};
 use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Paragraph, Text, Widget};
 use tui::Terminal;
@@ -33,11 +34,16 @@ fn main() -> io::Result<()> {
     file.read_to_string(&mut contents).unwrap();
 
     let playfield = Playfield::new(&contents);
-    //let input = Vec::new();
+    let input = Cursor::new(Vec::new());
     let output = Vec::new();
-    let io = InputOutput::new(std::io::stdin(), output);
+    let io = InputOutput::new(input, output);
 
     let mut interpreter = Interpreter::new(playfield, io);
+
+    // ---
+
+    let mut running = true;
+    let mut delay = 50;
 
     // ---
 
@@ -49,7 +55,7 @@ fn main() -> io::Result<()> {
 
     terminal.hide_cursor()?;
 
-    loop {
+    'outer: loop {
         terminal.draw(|mut f| {
             let mut text = Vec::new();
 
@@ -93,18 +99,21 @@ fn main() -> io::Result<()> {
 
             let output = Block::default().title(" Output ").borders(Borders::ALL);
 
+            let input = Block::default().title(" Input ").borders(Borders::ALL);
+
             let cols = Layout::default()
                 .direction(Direction::Horizontal)
                 .margin(1)
                 .constraints(
                     [
                         Constraint::Length(interpreter.field().dimensions().0 as u16 + 4),
-                        Constraint::Min(0),
-                    ].as_ref(),
+                        Constraint::Percentage(50),
+                    ]
+                    .as_ref(),
                 )
                 .split(f.size());
 
-            let chunks = Layout::default()
+            let left = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints(
                     [
@@ -115,33 +124,65 @@ fn main() -> io::Result<()> {
                 )
                 .split(cols[0]);
 
+            let right = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    [
+                        Constraint::Percentage(80),
+                        Constraint::Percentage(20),
+                    ]
+                    .as_ref(),
+                )
+                .split(cols[1]);
+
             Paragraph::new(text.iter())
                 .block(playfield)
                 .alignment(Alignment::Center)
-                .render(&mut f, chunks[0]);
+                .render(&mut f, left[0]);
 
             let text = vec![Text::raw(format!("{:?}", interpreter.stack()))];
 
             Paragraph::new(text.iter())
                 .block(stack)
+                .wrap(true)
                 .alignment(Alignment::Left)
-                .render(&mut f, chunks[1]);
+                .render(&mut f, left[1]);
 
-            let text = vec![Text::raw(std::str::from_utf8(interpreter.io().writer()).unwrap())];
+            let text = vec![Text::raw(
+                std::str::from_utf8(interpreter.io().writer()).unwrap(),
+            )];
 
             Paragraph::new(text.iter())
                 .block(output)
                 .alignment(Alignment::Left)
-                .render(&mut f, cols[1]);
+                .render(&mut f, right[0]);
+
+            let text = vec![Text::raw(
+                std::str::from_utf8(interpreter.io().reader().get_ref()).unwrap(),
+            )];
+
+            Paragraph::new(text.iter())
+                .block(input)
+                .alignment(Alignment::Left)
+                .render(&mut f, right[1]);
         })?;
 
-        if let Some(Ok(Key::Char('q'))) = keys.next() {
-            break;
+        while let Some(Ok(k)) = keys.next() {
+            match k {
+                Key::Char('q') => break 'outer,
+                Key::Char('p') => running = !running,
+                Key::Char('n') if !running => interpreter.next().unwrap_or(()),
+                Key::Left => delay = cmp::min(delay + (delay / 5), 1000),
+                Key::Right => delay = cmp::max(delay - (delay / 5), 10),
+                _ => (),
+            }
         }
 
-        interpreter.next();
+        if running {
+            interpreter.next();
+        }
 
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(delay));
     }
 
     Ok(())
