@@ -83,7 +83,7 @@ fn main() -> io::Result<()> {
 
     terminal.hide_cursor()?;
 
-    loop {
+    'outer: loop {
         terminal.draw(|mut f| {
             let mut text = Vec::new();
 
@@ -190,6 +190,21 @@ fn main() -> io::Result<()> {
                 .alignment(Alignment::Left)
                 .render(&mut f, right[1]);
         })?;
+
+        for ev in receiver.try_iter() {
+            if let Event::Input(k) = ev {
+                match k {
+                    Key::Char('q') => break,
+                    Key::Char('p') => int_send.send(InterpreterMessage::TogglePause).unwrap(),
+                    Key::Char('n') => int_send.send(InterpreterMessage::Step).unwrap(),
+                    Key::Left => int_send.send(InterpreterMessage::Slower).unwrap(),
+                    Key::Right => int_send.send(InterpreterMessage::Faster).unwrap(),
+                    _ => (),
+                }
+
+                continue 'outer
+            }
+        }
 
         if let Event::Input(k) = receiver.recv().unwrap() {
             match k {
