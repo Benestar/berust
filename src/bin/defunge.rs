@@ -68,7 +68,11 @@ fn main() -> io::Result<()> {
     let send2 = mpsc::Sender::clone(&send);
 
     thread::spawn(move || {
-        interpreter_handler(send2, int_receive, int2);
+        interpreter_handler(int_receive, int2);
+    });
+
+    thread::spawn(move || {
+        tick_handler(send2);
     });
 
     thread::spawn(move || {
@@ -191,29 +195,6 @@ fn main() -> io::Result<()> {
                 .render(&mut f, right[1]);
         })?;
 
-        let mut dirty = false;
-
-        for ev in receiver.try_iter() {
-            dirty = true;
-
-            if let Event::Input(k) = ev {
-                match k {
-                    Key::Char('q') => break,
-                    Key::Char('p') => int_send.send(InterpreterMessage::TogglePause).unwrap(),
-                    Key::Char('n') => int_send.send(InterpreterMessage::Step).unwrap(),
-                    Key::Left => int_send.send(InterpreterMessage::Slower).unwrap(),
-                    Key::Right => int_send.send(InterpreterMessage::Faster).unwrap(),
-                    _ => (),
-                }
-
-                break
-            }
-        }
-
-        if dirty {
-            continue
-        }
-
         if let Event::Input(k) = receiver.recv().unwrap() {
             match k {
                 Key::Char('q') => break,
@@ -230,7 +211,6 @@ fn main() -> io::Result<()> {
 }
 
 fn interpreter_handler(
-    sender: mpsc::Sender<Event<Key>>,
     receiver: mpsc::Receiver<InterpreterMessage>,
     interpreter: Arc<Mutex<Interpreter<impl Read, impl Write>>>,
 ) {
@@ -245,24 +225,28 @@ fn interpreter_handler(
                 InterpreterMessage::TogglePause => running = !running,
                 InterpreterMessage::Slower => delay = cmp::min(delay + (delay / 5), 1000),
                 InterpreterMessage::Faster => delay = cmp::max(delay - (delay / 5), 10),
-                InterpreterMessage::Step if !running => {
-                    interpreter.lock().unwrap().next();
-
-                    sender.send(Event::Tick).unwrap();
-                }
+                InterpreterMessage::Step if !running => interpreter.lock().unwrap().next().unwrap_or(()),
                 _ => (),
             }
         }
 
         if running {
             interpreter.lock().unwrap().next();
-
-            sender.send(Event::Tick).unwrap();
         }
 
         if let Some(d) = Duration::from_millis(delay).checked_sub(start.elapsed()) {
             thread::sleep(d);
         }
+    }
+}
+
+fn tick_handler(
+    sender: mpsc::Sender<Event<Key>>
+) {
+    loop {
+        sender.send(Event::Tick).unwrap();
+
+        thread::sleep(Duration::from_millis(33));
     }
 }
 
