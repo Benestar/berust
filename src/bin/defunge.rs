@@ -137,33 +137,25 @@ fn main() -> io::Result<()> {
         process::exit(1);
     }
 
-    let mut file = File::open(&args[1]).unwrap();
-    let mut contents = String::new();
+    // obtain the interpreter
+    let interpreter = create_interpreter(&args[1]);
 
-    file.read_to_string(&mut contents).unwrap();
-
-    let playfield = Playfield::new(&contents);
-    let input = Cursor::new(Vec::new());
-    let output = Vec::new();
-    let io = InputOutput::new(input, output);
-
-    let interpreter = Interpreter::new(playfield, io);
-
-    // ---
-
+    // start the event queue and the runtime environment
     let events = Events::new();
     let runtime = Runtime::new(interpreter);
 
-    // ---
-
+    // prepare the terminal
     let stdout = io::stdout().into_raw_mode()?;
     let backend = TermionBackend::new(AlternateScreen::from(stdout));
     let mut terminal = Terminal::new(backend)?;
 
     terminal.hide_cursor()?;
 
+    // start the rendering loop
     loop {
         terminal.draw(|mut f| {
+            // -- format data
+
             let interpreter = runtime.interpreter.lock().unwrap();
 
             let width = interpreter.field().dimensions().0;
@@ -177,6 +169,8 @@ fn main() -> io::Result<()> {
             let input = vec![Text::raw(
                 std::str::from_utf8(interpreter.io().reader().get_ref()).unwrap(),
             )];
+
+            // -- define layout
 
             let cols = Layout::default()
                 .direction(Direction::Horizontal)
@@ -199,6 +193,8 @@ fn main() -> io::Result<()> {
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
                 .split(cols[1]);
+
+            // -- render blocks and paragraphs
 
             Paragraph::new(playfield.iter())
                 .block(Block::default().title(" Playfield ").borders(Borders::ALL))
@@ -235,6 +231,20 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn create_interpreter(path: &str) -> Interpreter<Cursor<Vec<u8>>, Vec<u8>> {
+    let mut file = File::open(path).unwrap();
+    let mut contents = String::new();
+
+    file.read_to_string(&mut contents).unwrap();
+
+    let playfield = Playfield::new(&contents);
+    let input = Cursor::new(Vec::new());
+    let output = Vec::new();
+    let io = InputOutput::new(input, output);
+
+    Interpreter::new(playfield, io)
 }
 
 fn format_playfield(playfield: &Playfield, pos: (usize, usize)) -> Vec<Text> {
