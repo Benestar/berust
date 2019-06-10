@@ -123,10 +123,6 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
         }
     }
 
-    fn interpreter(&self) -> std::sync::MutexGuard<Interpreter<R, W>> {
-        self.interpreter.lock().unwrap()
-    }
-
     fn send(&self, message: RuntimeMessage) {
         self.sender.send(message).unwrap()
     }
@@ -136,7 +132,7 @@ fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        println!("Usage: ./befunge <file>");
+        println!("Usage: ./defunge <file>");
 
         process::exit(1);
     }
@@ -168,58 +164,26 @@ fn main() -> io::Result<()> {
 
     loop {
         terminal.draw(|mut f| {
-            let mut text = Vec::new();
+            let interpreter = runtime.interpreter.lock().unwrap();
 
-            let interpreter = runtime.interpreter();
+            let width = interpreter.field().dimensions().0;
+            let height = interpreter.field().dimensions().1;
 
-            for (y, l) in interpreter.field().lines().enumerate() {
-                for (x, c) in l.chunks(1).enumerate() {
-                    let data = std::str::from_utf8(c).unwrap();
-
-                    let mut style = match c[0] {
-                        // numbers
-                        b'0'...b'9' => Style::default().fg(Color::Blue),
-                        // operators
-                        b'+' | b'-' | b'*' | b'/' | b'%' | b'!' | b'`' => {
-                            Style::default().fg(Color::Red)
-                        }
-                        // movement
-                        b'>' | b'<' | b'^' | b'v' | b'?' => Style::default().fg(Color::Red),
-                        // branching
-                        b'_' | b'|' | b'#' | b'@' => Style::default().fg(Color::Red),
-                        // stack
-                        b':' | b'\\' | b'$' | b'"' => Style::default(),
-                        // io
-                        b'.' | b',' | b'&' | b'~' => Style::default(),
-                        // storage
-                        b'p' | b'g' => Style::default().fg(Color::Red),
-                        _ => Style::default(),
-                    };
-
-                    if interpreter.nav().pos() == (x, y) {
-                        style = style.bg(Color::Red).fg(Color::White);
-                    }
-
-                    text.push(Text::styled(data, style));
-                }
-
-                text.push(Text::raw("\n"));
-            }
-
-            let playfield = Block::default().title(" Playfield ").borders(Borders::ALL);
-
-            let stack = Block::default().title(" Stack ").borders(Borders::ALL);
-
-            let output = Block::default().title(" Output ").borders(Borders::ALL);
-
-            let input = Block::default().title(" Input ").borders(Borders::ALL);
+            let playfield = format_playfield(interpreter.field(), interpreter.nav().pos());
+            let stack = vec![Text::raw(format!("{:?}", interpreter.stack()))];
+            let output = vec![Text::raw(
+                std::str::from_utf8(interpreter.io().writer()).unwrap(),
+            )];
+            let input = vec![Text::raw(
+                std::str::from_utf8(interpreter.io().reader().get_ref()).unwrap(),
+            )];
 
             let cols = Layout::default()
                 .direction(Direction::Horizontal)
                 .margin(1)
                 .constraints(
                     [
-                        Constraint::Min(interpreter.field().dimensions().0 as u16 + 4),
+                        Constraint::Min(width as u16 + 4),
                         Constraint::Percentage(50),
                     ]
                     .as_ref(),
@@ -228,13 +192,7 @@ fn main() -> io::Result<()> {
 
             let left = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Length(interpreter.field().dimensions().1 as u16 + 2),
-                        Constraint::Min(0),
-                    ]
-                    .as_ref(),
-                )
+                .constraints([Constraint::Length(height as u16 + 2), Constraint::Min(0)].as_ref())
                 .split(cols[0]);
 
             let right = Layout::default()
@@ -242,34 +200,24 @@ fn main() -> io::Result<()> {
                 .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
                 .split(cols[1]);
 
-            Paragraph::new(text.iter())
-                .block(playfield)
+            Paragraph::new(playfield.iter())
+                .block(Block::default().title(" Playfield ").borders(Borders::ALL))
                 .alignment(Alignment::Center)
                 .render(&mut f, left[0]);
 
-            let text = vec![Text::raw(format!("{:?}", interpreter.stack()))];
-
-            Paragraph::new(text.iter())
-                .block(stack)
+            Paragraph::new(stack.iter())
+                .block(Block::default().title(" Stack ").borders(Borders::ALL))
                 .wrap(true)
                 .alignment(Alignment::Left)
                 .render(&mut f, left[1]);
 
-            let text = vec![Text::raw(
-                std::str::from_utf8(interpreter.io().writer()).unwrap(),
-            )];
-
-            Paragraph::new(text.iter())
-                .block(output)
+            Paragraph::new(output.iter())
+                .block(Block::default().title(" Output ").borders(Borders::ALL))
                 .alignment(Alignment::Left)
                 .render(&mut f, right[0]);
 
-            let text = vec![Text::raw(
-                std::str::from_utf8(interpreter.io().reader().get_ref()).unwrap(),
-            )];
-
-            Paragraph::new(text.iter())
-                .block(input)
+            Paragraph::new(input.iter())
+                .block(Block::default().title(" Input ").borders(Borders::ALL))
                 .alignment(Alignment::Left)
                 .render(&mut f, right[1]);
         })?;
@@ -287,4 +235,43 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn format_playfield(playfield: &Playfield, pos: (usize, usize)) -> Vec<Text> {
+    let mut text = Vec::new();
+
+    for (y, l) in playfield.lines().enumerate() {
+        for (x, c) in l.chunks(1).enumerate() {
+            let data = std::str::from_utf8(c).unwrap();
+
+            let mut style = match c[0] {
+                // numbers
+                b'0'...b'9' => Style::default().fg(Color::Blue),
+                // operators
+                b'+' | b'-' | b'*' | b'/' | b'%' | b'!' | b'`' => Style::default().fg(Color::Red),
+                // movement
+                b'>' | b'<' | b'^' | b'v' | b'?' => Style::default().fg(Color::Red),
+                // branching
+                b'_' | b'|' | b'#' | b'@' => Style::default().fg(Color::Red),
+                // stack
+                b':' | b'\\' | b'$' | b'"' => Style::default(),
+                // io
+                b'.' | b',' | b'&' | b'~' => Style::default(),
+                // storage
+                b'p' | b'g' => Style::default().fg(Color::Red),
+                // others
+                _ => Style::default(),
+            };
+
+            if pos == (x, y) {
+                style = style.bg(Color::Red).fg(Color::White);
+            }
+
+            text.push(Text::styled(data, style));
+        }
+
+        text.push(Text::raw("\n"));
+    }
+
+    text
 }
