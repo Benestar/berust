@@ -83,7 +83,7 @@ fn main() -> io::Result<()> {
 
     terminal.hide_cursor()?;
 
-    'outer: loop {
+    loop {
         terminal.draw(|mut f| {
             let mut text = Vec::new();
 
@@ -191,7 +191,11 @@ fn main() -> io::Result<()> {
                 .render(&mut f, right[1]);
         })?;
 
+        let mut dirty = false;
+
         for ev in receiver.try_iter() {
+            dirty = true;
+
             if let Event::Input(k) = ev {
                 match k {
                     Key::Char('q') => break,
@@ -202,8 +206,12 @@ fn main() -> io::Result<()> {
                     _ => (),
                 }
 
-                continue 'outer
+                break
             }
+        }
+
+        if dirty {
+            continue
         }
 
         if let Event::Input(k) = receiver.recv().unwrap() {
