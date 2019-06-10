@@ -28,11 +28,108 @@ enum Event<I> {
     Tick,
 }
 
-enum InterpreterMessage {
+struct Events {
+    receiver: mpsc::Receiver<Event<Key>>,
+}
+
+impl Events {
+    fn new() -> Events {
+        let (sender, receiver) = mpsc::channel();
+
+        {
+            let sender = sender.clone();
+
+            thread::spawn(move || {
+                let stdin = io::stdin();
+
+                for result in stdin.keys() {
+                    if let Ok(key) = result {
+                        sender.send(Event::Input(key)).unwrap();
+                    }
+                }
+            });
+        }
+
+        {
+            let sender = sender.clone();
+
+            thread::spawn(move || loop {
+                sender.send(Event::Tick).unwrap();
+                thread::sleep(Duration::from_millis(33));
+            });
+        }
+
+        Self { receiver }
+    }
+
+    fn next(&self) -> Event<Key> {
+        self.receiver.recv().unwrap()
+    }
+}
+
+enum RuntimeMessage {
     TogglePause,
     Slower,
     Faster,
     Step,
+}
+
+struct Runtime<R, W> {
+    interpreter: Arc<Mutex<Interpreter<R, W>>>,
+    sender: mpsc::Sender<RuntimeMessage>,
+}
+
+impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
+    fn new(interpreter: Interpreter<R, W>) -> Self {
+        let interpreter = Arc::new(Mutex::new(interpreter));
+        let (sender, receiver) = mpsc::channel();
+
+        {
+            let interpreter = interpreter.clone();
+
+            thread::spawn(move || {
+                let mut delay = 100;
+                let mut running = true;
+
+                loop {
+                    let start = Instant::now();
+
+                    for msg in receiver.try_iter() {
+                        match msg {
+                            RuntimeMessage::TogglePause => running = !running,
+                            RuntimeMessage::Slower => delay = cmp::min(delay + (delay / 5), 1000),
+                            RuntimeMessage::Faster => delay = cmp::max(delay - (delay / 5), 10),
+                            RuntimeMessage::Step if !running => {
+                                interpreter.lock().unwrap().next().unwrap_or(())
+                            }
+                            _ => (),
+                        }
+                    }
+
+                    if running {
+                        interpreter.lock().unwrap().next();
+                    }
+
+                    if let Some(d) = Duration::from_millis(delay).checked_sub(start.elapsed()) {
+                        thread::sleep(d);
+                    }
+                }
+            });
+        }
+
+        Self {
+            interpreter,
+            sender,
+        }
+    }
+
+    fn interpreter(&self) -> std::sync::MutexGuard<Interpreter<R, W>> {
+        self.interpreter.lock().unwrap()
+    }
+
+    fn send(&self, message: RuntimeMessage) {
+        self.sender.send(message).unwrap()
+    }
 }
 
 fn main() -> io::Result<()> {
@@ -58,26 +155,8 @@ fn main() -> io::Result<()> {
 
     // ---
 
-    let int = Arc::new(Mutex::new(interpreter));
-
-    let int2 = Arc::clone(&int);
-
-    let (send, receiver) = mpsc::channel();
-    let (int_send, int_receive) = mpsc::channel();
-
-    let send2 = mpsc::Sender::clone(&send);
-
-    thread::spawn(move || {
-        interpreter_handler(int_receive, int2);
-    });
-
-    thread::spawn(move || {
-        tick_handler(send2);
-    });
-
-    thread::spawn(move || {
-        input_handler(send);
-    });
+    let events = Events::new();
+    let runtime = Runtime::new(interpreter);
 
     // ---
 
@@ -91,7 +170,7 @@ fn main() -> io::Result<()> {
         terminal.draw(|mut f| {
             let mut text = Vec::new();
 
-            let interpreter = int.lock().unwrap();
+            let interpreter = runtime.interpreter();
 
             for (y, l) in interpreter.field().lines().enumerate() {
                 for (x, c) in l.chunks(1).enumerate() {
@@ -195,69 +274,17 @@ fn main() -> io::Result<()> {
                 .render(&mut f, right[1]);
         })?;
 
-        if let Event::Input(k) = receiver.recv().unwrap() {
+        if let Event::Input(k) = events.next() {
             match k {
                 Key::Char('q') => break,
-                Key::Char('p') => int_send.send(InterpreterMessage::TogglePause).unwrap(),
-                Key::Char('n') => int_send.send(InterpreterMessage::Step).unwrap(),
-                Key::Left => int_send.send(InterpreterMessage::Slower).unwrap(),
-                Key::Right => int_send.send(InterpreterMessage::Faster).unwrap(),
+                Key::Char('p') => runtime.send(RuntimeMessage::TogglePause),
+                Key::Char('n') => runtime.send(RuntimeMessage::Step),
+                Key::Left => runtime.send(RuntimeMessage::Slower),
+                Key::Right => runtime.send(RuntimeMessage::Faster),
                 _ => (),
             }
         }
     }
 
     Ok(())
-}
-
-fn interpreter_handler(
-    receiver: mpsc::Receiver<InterpreterMessage>,
-    interpreter: Arc<Mutex<Interpreter<impl Read, impl Write>>>,
-) {
-    let mut delay = 100;
-    let mut running = true;
-
-    loop {
-        let start = Instant::now();
-
-        for msg in receiver.try_iter() {
-            match msg {
-                InterpreterMessage::TogglePause => running = !running,
-                InterpreterMessage::Slower => delay = cmp::min(delay + (delay / 5), 1000),
-                InterpreterMessage::Faster => delay = cmp::max(delay - (delay / 5), 10),
-                InterpreterMessage::Step if !running => interpreter.lock().unwrap().next().unwrap_or(()),
-                _ => (),
-            }
-        }
-
-        if running {
-            interpreter.lock().unwrap().next();
-        }
-
-        if let Some(d) = Duration::from_millis(delay).checked_sub(start.elapsed()) {
-            thread::sleep(d);
-        }
-    }
-}
-
-fn tick_handler(
-    sender: mpsc::Sender<Event<Key>>
-) {
-    loop {
-        sender.send(Event::Tick).unwrap();
-
-        thread::sleep(Duration::from_millis(33));
-    }
-}
-
-fn input_handler(
-    sender: mpsc::Sender<Event<Key>>
-) {
-    let stdin = io::stdin();
-
-    for result in stdin.keys() {
-        if let Ok(key) = result {
-            sender.send(Event::Input(key)).unwrap();
-        }
-    }
 }
