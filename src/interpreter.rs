@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mode {
     Execute,
-    String,
+    Parse,
     Terminate,
 }
 
@@ -122,12 +122,12 @@ where
     }
 
     fn execute_step(&mut self, c: u8) -> Mode {
-        match c as char {
+        match c {
             // Push this number on the stack
-            '0'...'9' => self.stack.push(i64::from(c - 0x30)),
+            b'0'...b'9' => self.stack.push(i64::from(c - 0x30)),
 
             // Addition: Pop a and b, then push a+b
-            '+' => {
+            b'+' => {
                 let a = self.stack.pop().unwrap_or(0);
                 let b = self.stack.pop().unwrap_or(0);
 
@@ -135,7 +135,7 @@ where
             }
 
             // Subtraction: Pop a and b, then push b-a
-            '-' => {
+            b'-' => {
                 let a = self.stack.pop().unwrap_or(0);
                 let b = self.stack.pop().unwrap_or(0);
 
@@ -143,7 +143,7 @@ where
             }
 
             // Multiplication: Pop a and b, then push a*b
-            '*' => {
+            b'*' => {
                 let a = self.stack.pop().unwrap_or(0);
                 let b = self.stack.pop().unwrap_or(0);
 
@@ -151,7 +151,7 @@ where
             }
 
             // Integer division: Pop a and b, then push b/a, rounded towards 0
-            '/' => {
+            b'/' => {
                 let a = self.stack.pop().unwrap_or(0);
                 let b = self.stack.pop().unwrap_or(0);
 
@@ -159,7 +159,7 @@ where
             }
 
             // Modulo: Pop a and b, then push the remainder of the integer division of b/a
-            '%' => {
+            b'%' => {
                 let a = self.stack.pop().unwrap_or(0);
                 let b = self.stack.pop().unwrap_or(0);
 
@@ -167,7 +167,7 @@ where
             }
 
             // Logical NOT: Pop a value. If the value is zero, push 1; otherwise, push zero.
-            '!' => {
+            b'!' => {
                 if self.stack.pop().unwrap_or(0) == 0 {
                     self.stack.push(1)
                 } else {
@@ -176,7 +176,7 @@ where
             }
 
             // Greater than: Pop a and b, then push 1 if b>a, otherwise zero.
-            '`' => {
+            b'`' => {
                 let a = self.stack.pop().unwrap_or(0);
                 let b = self.stack.pop().unwrap_or(0);
 
@@ -188,22 +188,22 @@ where
             }
 
             // Start moving right
-            '>' => self.nav.turn(Direction::Right),
+            b'>' => self.nav.turn(Direction::Right),
 
             // Start moving left
-            '<' => self.nav.turn(Direction::Left),
+            b'<' => self.nav.turn(Direction::Left),
 
             // Start moving up
-            '^' => self.nav.turn(Direction::Up),
+            b'^' => self.nav.turn(Direction::Up),
 
             // Start moving down
-            'v' => self.nav.turn(Direction::Down),
+            b'v' => self.nav.turn(Direction::Down),
 
             // Start moving in a random cardinal direction
-            '?' => self.nav.turn(rand::random()),
+            b'?' => self.nav.turn(rand::random()),
 
             // Pop a value; move right if value=0, left otherwise
-            '_' => {
+            b'_' => {
                 if self.stack.pop().unwrap_or(0) == 0 {
                     self.nav.turn(Direction::Right)
                 } else {
@@ -212,7 +212,7 @@ where
             }
 
             // Pop a value; move down if value=0, up otherwise
-            '|' => {
+            b'|' => {
                 if self.stack.pop().unwrap_or(0) == 0 {
                     self.nav.turn(Direction::Down)
                 } else {
@@ -221,10 +221,10 @@ where
             }
 
             // Start string mode: push each character's ASCII value all the way up to the next "
-            '"' => return Mode::String,
+            b'"' => return Mode::Parse,
 
             // Duplicate value on top of the stack
-            ':' => {
+            b':' => {
                 let v = self.stack.pop().unwrap_or(0);
 
                 self.stack.push(v);
@@ -232,7 +232,7 @@ where
             }
 
             // Swap two values on top of the stack
-            '\\' => {
+            b'\\' => {
                 let a = self.stack.pop().unwrap_or(0);
                 let b = self.stack.pop().unwrap_or(0);
 
@@ -241,24 +241,24 @@ where
             }
 
             // Pop value from the stack and discard it
-            '$' => {
+            b'$' => {
                 self.stack.pop();
             }
 
             // Pop value and output as an integer followed by a space
-            '.' => self.io.write_int(self.stack.pop().unwrap_or(0)),
+            b'.' => self.io.write_int(self.stack.pop().unwrap_or(0)),
 
             // Pop value and output as ASCII character
-            ',' => self.io.write_ascii(self.stack.pop().unwrap_or(0)),
+            b',' => self.io.write_ascii(self.stack.pop().unwrap_or(0)),
 
             // Bridge: Skip next cell
-            '#' => self.nav.step(),
+            b'#' => self.nav.step(),
 
             // A "put" call (a way to store a value for later use).
             //
             // Pop y, x, and v, then change the character at (x,y) in the program to the character
             // with ASCII value v
-            'p' => {
+            b'p' => {
                 let y = self.stack.pop().unwrap_or(0);
                 let x = self.stack.pop().unwrap_or(0);
                 let v = self.stack.pop().unwrap_or(0);
@@ -269,7 +269,7 @@ where
             // A "get" call (a way to retrieve data in storage).
             //
             // Pop y and x, then push ASCII value of the character at that position in the program
-            'g' => {
+            b'g' => {
                 let y = self.stack.pop().unwrap_or(0);
                 let x = self.stack.pop().unwrap_or(0);
                 let v = self.field[(x as usize, y as usize)];
@@ -278,16 +278,16 @@ where
             }
 
             // Ask user for a number and push it
-            '&' => self.stack.push(self.io.read_int()),
+            b'&' => self.stack.push(self.io.read_int()),
 
             // Ask user for a character and push its ASCII value
-            '~' => self.stack.push(self.io.read_ascii()),
+            b'~' => self.stack.push(self.io.read_ascii()),
 
             // End program
-            '@' => return Mode::Terminate,
+            b'@' => return Mode::Terminate,
 
             // No-op. Does nothing
-            ' ' => (),
+            b' ' => (),
 
             // Illegal characters
             _ => panic!("Illegal character: {}", c as char),
@@ -296,14 +296,14 @@ where
         Mode::Execute
     }
 
-    fn string_step(&mut self, c: u8) -> Mode {
-        if c as char == '"' {
+    fn parse_step(&mut self, c: u8) -> Mode {
+        if let b'"' = c {
             return Mode::Execute;
         }
 
         self.stack.push(i64::from(c));
 
-        Mode::String
+        Mode::Parse
     }
 }
 
@@ -319,7 +319,7 @@ where
 
         self.mode = match self.mode {
             Mode::Execute => self.execute_step(val),
-            Mode::String => self.string_step(val),
+            Mode::Parse => self.parse_step(val),
             Mode::Terminate => Mode::Terminate,
         };
 
@@ -599,10 +599,10 @@ mod tests {
             "",
             vec![
                 (Mode::Execute, vec![]),
-                (Mode::String, vec![]),
-                (Mode::String, vec![0x61]),
-                (Mode::String, vec![0x61, 0x62]),
-                (Mode::String, vec![0x61, 0x62, 0x63]),
+                (Mode::Parse, vec![]),
+                (Mode::Parse, vec![0x61]),
+                (Mode::Parse, vec![0x61, 0x62]),
+                (Mode::Parse, vec![0x61, 0x62, 0x63]),
                 (Mode::Execute, vec![0x61, 0x62, 0x63]),
             ],
         );
@@ -614,10 +614,10 @@ mod tests {
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![1]),
-                (Mode::String, vec![1]),
-                (Mode::String, vec![1, 0x32]),
-                (Mode::String, vec![1, 0x32, 0x33]),
-                (Mode::String, vec![1, 0x32, 0x33, 0x31]),
+                (Mode::Parse, vec![1]),
+                (Mode::Parse, vec![1, 0x32]),
+                (Mode::Parse, vec![1, 0x32, 0x33]),
+                (Mode::Parse, vec![1, 0x32, 0x33, 0x31]),
                 (Mode::Execute, vec![1, 0x32, 0x33, 0x31]),
             ],
         );
@@ -629,9 +629,9 @@ mod tests {
             vec![
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![]),
-                (Mode::String, vec![]),
-                (Mode::String, vec![0x61]),
-                (Mode::String, vec![0x61, 0x62]),
+                (Mode::Parse, vec![]),
+                (Mode::Parse, vec![0x61]),
+                (Mode::Parse, vec![0x61, 0x62]),
                 (Mode::Execute, vec![0x61, 0x62]),
             ],
         );
@@ -693,8 +693,8 @@ mod tests {
             "a\n",
             vec![
                 (Mode::Execute, vec![]),
-                (Mode::String, vec![]),
-                (Mode::String, vec![0x61]),
+                (Mode::Parse, vec![]),
+                (Mode::Parse, vec![0x61]),
                 (Mode::Execute, vec![0x61]),
                 (Mode::Execute, vec![]),
                 (Mode::Execute, vec![2]),
