@@ -23,20 +23,29 @@ use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Paragraph, Text, Widget};
 use tui::Terminal;
 
-enum Event<I> {
+/// Either an input event or a simple tick
+pub enum Event<I> {
     Input(I),
     Tick,
 }
 
-struct Events {
+/// A blocking provider of events
+///
+/// An input event is fired immediately when some user input is registered
+/// and a tick event occurs in regular intervals.
+pub struct Events {
     receiver: mpsc::Receiver<Event<Key>>,
 }
 
 impl Events {
-    fn new() -> Events {
+    /// Starts separate threads to generate input and tick events.
+    ///
+    /// A tick event is fired every `1000 / fps` milliseconds.
+    pub fn new(fps: u64) -> Self {
         let (sender, receiver) = mpsc::channel();
 
         {
+            // Input thread
             let sender = sender.clone();
 
             thread::spawn(move || {
@@ -51,36 +60,48 @@ impl Events {
         }
 
         {
+            // Tick thread
             let sender = sender.clone();
 
             thread::spawn(move || loop {
                 sender.send(Event::Tick).unwrap();
-                thread::sleep(Duration::from_millis(33));
+                thread::sleep(Duration::from_millis(1000 / fps));
             });
         }
 
         Self { receiver }
     }
 
-    fn next(&self) -> Event<Key> {
+    /// Blocks until the next event and returns it.
+    pub fn next(&self) -> Event<Key> {
         self.receiver.recv().unwrap()
     }
 }
 
-enum RuntimeMessage {
+/// A message for the runtime environment
+///
+/// One can tell the runtime to pause or resume, to proceed slower or faster,
+/// and, if paused, to execute a single step.
+pub enum RuntimeCommand {
     TogglePause,
     Slower,
     Faster,
     Step,
 }
 
-struct Runtime<R, W> {
+/// The runtime environment for an interpreter instance
+///
+/// It be controlled by sending [`RuntimeCommand`] messages to the runtime.
+///
+/// [`RuntimeCommand`]: enum.RuntimeCommand.html
+pub struct Runtime<R, W> {
     interpreter: Arc<Mutex<Interpreter<R, W>>>,
-    sender: mpsc::Sender<RuntimeMessage>,
+    sender: mpsc::Sender<RuntimeCommand>,
 }
 
 impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
-    fn new(interpreter: Interpreter<R, W>) -> Self {
+    /// Starts a new thread running the given interpreter.
+    pub fn new(interpreter: Interpreter<R, W>) -> Self {
         let interpreter = Arc::new(Mutex::new(interpreter));
         let (sender, receiver) = mpsc::channel();
 
@@ -94,12 +115,12 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
                 loop {
                     let start = Instant::now();
 
-                    for msg in receiver.try_iter() {
-                        match msg {
-                            RuntimeMessage::TogglePause => running = !running,
-                            RuntimeMessage::Slower => delay = cmp::min(delay + (delay / 5), 1000),
-                            RuntimeMessage::Faster => delay = cmp::max(delay - (delay / 5), 10),
-                            RuntimeMessage::Step if !running => {
+                    for cmd in receiver.try_iter() {
+                        match cmd {
+                            RuntimeCommand::TogglePause => running = !running,
+                            RuntimeCommand::Slower => delay = cmp::min(delay + (delay / 5), 1000),
+                            RuntimeCommand::Faster => delay = cmp::max(delay - (delay / 5), 10),
+                            RuntimeCommand::Step if !running => {
                                 interpreter.lock().unwrap().next().unwrap_or(())
                             }
                             _ => (),
@@ -123,8 +144,9 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
         }
     }
 
-    fn send(&self, message: RuntimeMessage) {
-        self.sender.send(message).unwrap()
+    /// Sends a command to the runtime environment.
+    pub fn send(&self, cmd: RuntimeCommand) {
+        self.sender.send(cmd).unwrap()
     }
 }
 
@@ -141,7 +163,7 @@ fn main() -> io::Result<()> {
     let interpreter = create_interpreter(&args[1]);
 
     // start the event queue and the runtime environment
-    let events = Events::new();
+    let events = Events::new(30);
     let runtime = Runtime::new(interpreter);
 
     // prepare the terminal
@@ -221,10 +243,10 @@ fn main() -> io::Result<()> {
         if let Event::Input(k) = events.next() {
             match k {
                 Key::Char('q') => break,
-                Key::Char('p') => runtime.send(RuntimeMessage::TogglePause),
-                Key::Char('n') => runtime.send(RuntimeMessage::Step),
-                Key::Left => runtime.send(RuntimeMessage::Slower),
-                Key::Right => runtime.send(RuntimeMessage::Faster),
+                Key::Char('p') => runtime.send(RuntimeCommand::TogglePause),
+                Key::Char('n') => runtime.send(RuntimeCommand::Step),
+                Key::Left => runtime.send(RuntimeCommand::Slower),
+                Key::Right => runtime.send(RuntimeCommand::Faster),
                 _ => (),
             }
         }
