@@ -38,7 +38,7 @@ pub struct Events {
 }
 
 impl Events {
-    /// Starts separate threads to generate input and tick events.
+    /// Start separate threads to generate input and tick events.
     ///
     /// A tick event is fired every `1000 / fps` milliseconds.
     pub fn new(fps: u64) -> Self {
@@ -72,7 +72,7 @@ impl Events {
         Self { receiver }
     }
 
-    /// Blocks until the next event and returns it.
+    /// Block until the next event and return it.
     pub fn next(&self) -> Event<Key> {
         self.receiver.recv().unwrap()
     }
@@ -100,12 +100,13 @@ pub struct Runtime<R, W> {
 }
 
 impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
-    /// Starts a new thread running the given interpreter.
+    /// Start a new thread running the given interpreter.
     pub fn new(interpreter: Interpreter<R, W>) -> Self {
         let interpreter = Arc::new(Mutex::new(interpreter));
         let (sender, receiver) = mpsc::channel();
 
         {
+            // Runtime thread
             let interpreter = interpreter.clone();
 
             thread::spawn(move || {
@@ -144,7 +145,7 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
         }
     }
 
-    /// Sends a command to the runtime environment.
+    /// Send a command to the runtime environment.
     pub fn send(&self, cmd: RuntimeCommand) {
         self.sender.send(cmd).unwrap()
     }
