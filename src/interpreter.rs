@@ -1,5 +1,6 @@
 use crate::playfield::*;
 use rand::distributions;
+use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
 
 /// The current mode of the program
@@ -26,16 +27,19 @@ where
     R: Read,
     W: Write,
 {
+    /// Create a new input and output provider based on the given reader and writer.
     pub fn new(reader: R, writer: W) -> Self {
         let reader = BufReader::new(reader);
 
         Self { reader, writer }
     }
 
+    /// Return the input provider.
     pub fn reader(&self) -> &R {
         self.reader.get_ref()
     }
 
+    /// Return the output provider.
     pub fn writer(&self) -> &W {
         &self.writer
     }
@@ -66,6 +70,13 @@ where
         }
 
         i64::from(buf[0])
+    }
+}
+
+impl InputOutput<io::Stdin, io::Stdout> {
+    /// Create a new input and output provider based on `stdin` and `stdout`.
+    pub fn from_std() -> Self {
+        Self::new(io::stdin(), io::stdout())
     }
 }
 

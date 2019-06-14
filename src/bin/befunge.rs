@@ -4,6 +4,7 @@ use berust::interpreter::{InputOutput, Interpreter};
 use berust::playfield::Playfield;
 use std::env;
 use std::fs::File;
+use std::io;
 use std::io::Read;
 use std::process;
 
@@ -22,7 +23,7 @@ fn main() {
     file.read_to_string(&mut contents).unwrap();
 
     let playfield = Playfield::new(&contents);
-    let io = InputOutput::new(std::io::stdin(), std::io::stdout());
+    let io = InputOutput::new(io::stdin(), io::stdout());
 
     let interpreter = Interpreter::new(playfield, io);
 
