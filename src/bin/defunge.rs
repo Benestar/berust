@@ -89,7 +89,7 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
 
             thread::spawn(move || {
                 let mut delay = 100;
-                let mut running = true;
+                let mut running = false;
 
                 loop {
                     let start = Instant::now();
