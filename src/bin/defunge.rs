@@ -1,27 +1,32 @@
 extern crate berust;
 extern crate tui;
 
-use berust::interpreter::{InputOutput, Interpreter};
+use berust::interpreter::{InputOutput, Interpreter, Stack};
 use berust::playfield::Playfield;
 use std::cmp;
 use std::env;
 use std::fs::File;
 use std::io;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read};
+use std::iter;
 use std::process;
+use std::str;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use termion::event::Key;
 use termion::input::TermRead;
-use termion::raw::IntoRawMode;
+use termion::raw::{IntoRawMode, RawTerminal};
 use termion::screen::AlternateScreen;
 use tui::backend::TermionBackend;
 use tui::layout::{Alignment, Constraint, Direction, Layout};
 use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Paragraph, Text, Widget};
 use tui::Terminal;
+
+/// An interpreter variant with debug input and output.
+pub type DebugInterpreter = Interpreter<Cursor<Vec<u8>>, Vec<u8>>;
 
 /// Either an input event or a simple tick
 pub enum Event<I> {
@@ -94,15 +99,13 @@ pub enum RuntimeCommand {
 /// It be controlled by sending [`RuntimeCommand`] messages to the runtime.
 ///
 /// [`RuntimeCommand`]: enum.RuntimeCommand.html
-pub struct Runtime<R, W> {
-    interpreter: Arc<Mutex<Interpreter<R, W>>>,
+pub struct Runtime {
     sender: mpsc::Sender<RuntimeCommand>,
 }
 
-impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
+impl Runtime {
     /// Start a new thread running the given interpreter.
-    pub fn new(interpreter: Interpreter<R, W>) -> Self {
-        let interpreter = Arc::new(Mutex::new(interpreter));
+    pub fn new(interpreter: Arc<Mutex<DebugInterpreter>>) -> Self {
         let (sender, receiver) = mpsc::channel();
 
         {
@@ -139,10 +142,7 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
             });
         }
 
-        Self {
-            interpreter,
-            sender,
-        }
+        Self { sender }
     }
 
     /// Send a command to the runtime environment.
@@ -151,50 +151,41 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runtime<R, W> {
     }
 }
 
-fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
+/// User interface to render the interpreter
+pub struct UserInterface {
+    terminal: Terminal<TermionBackend<AlternateScreen<RawTerminal<io::Stdout>>>>,
+    interpreter: Arc<Mutex<DebugInterpreter>>,
+}
 
-    if args.len() < 2 {
-        println!("Usage: ./defunge <file>");
+impl UserInterface {
+    /// Create a new UI for the given interpreter.
+    pub fn new(interpreter: Arc<Mutex<DebugInterpreter>>) -> io::Result<Self> {
+        let stdout = io::stdout().into_raw_mode()?;
+        let backend = TermionBackend::new(AlternateScreen::from(stdout));
+        let mut terminal = Terminal::new(backend)?;
 
-        process::exit(1);
+        terminal.hide_cursor()?;
+
+        Ok(Self {
+            terminal,
+            interpreter,
+        })
     }
 
-    // obtain the interpreter
-    let interpreter = create_interpreter(&args[1]);
+    /// Render the current state of the interpreter.
+    pub fn render(&mut self) -> io::Result<()> {
+        let interpreter = self.interpreter.lock().unwrap();
 
-    // start the event queue and the runtime environment
-    let events = Events::new(30);
-    let runtime = Runtime::new(interpreter);
+        let width = interpreter.field().width();
+        let height = interpreter.field().height();
 
-    // prepare the terminal
-    let stdout = io::stdout().into_raw_mode()?;
-    let backend = TermionBackend::new(AlternateScreen::from(stdout));
-    let mut terminal = Terminal::new(backend)?;
+        let playfield = Self::format_playfield(interpreter.field(), interpreter.nav().pos());
+        let stack = Self::format_stack(interpreter.stack());
+        let output = Self::format_output(interpreter.io().writer());
+        let input = Self::format_input(interpreter.io().reader().get_ref());
 
-    terminal.hide_cursor()?;
-
-    // start the rendering loop
-    loop {
-        terminal.draw(|mut f| {
-            // -- format data
-
-            let interpreter = runtime.interpreter.lock().unwrap();
-
-            let width = interpreter.field().dimensions().0;
-            let height = interpreter.field().dimensions().1;
-
-            let playfield = format_playfield(interpreter.field(), interpreter.nav().pos());
-            let stack = vec![Text::raw(format!("{:?}", interpreter.stack()))];
-            let output = vec![Text::raw(
-                std::str::from_utf8(interpreter.io().writer()).unwrap(),
-            )];
-            let input = vec![Text::raw(
-                std::str::from_utf8(interpreter.io().reader().get_ref()).unwrap(),
-            )];
-
+        self.terminal.draw(|mut f| {
             // -- define layout
-
             let cols = Layout::default()
                 .direction(Direction::Horizontal)
                 .margin(1)
@@ -218,7 +209,6 @@ fn main() -> io::Result<()> {
                 .split(cols[1]);
 
             // -- render blocks and paragraphs
-
             Paragraph::new(playfield.iter())
                 .block(Block::default().title(" Playfield ").borders(Borders::ALL))
                 .alignment(Alignment::Center)
@@ -239,7 +229,95 @@ fn main() -> io::Result<()> {
                 .block(Block::default().title(" Input ").borders(Borders::ALL))
                 .alignment(Alignment::Left)
                 .render(&mut f, right[1]);
-        })?;
+        })
+    }
+
+    fn format_playfield(playfield: &Playfield, pos: (usize, usize)) -> Vec<Text> {
+        playfield
+            .lines()
+            .enumerate()
+            .flat_map(move |(y, l)| {
+                l.chunks(1)
+                    .enumerate()
+                    .map(move |(x, c)| {
+                        let data = str::from_utf8(c).unwrap();
+
+                        let style = match c[0] {
+                            // current position
+                            _ if pos == (x, y) => Style::default().bg(Color::Red).fg(Color::White),
+                            // numbers
+                            b'0'...b'9' => Style::default().fg(Color::Blue),
+                            // operators
+                            b'+' | b'-' | b'*' | b'/' | b'%' | b'!' | b'`' => {
+                                Style::default().fg(Color::Red)
+                            }
+                            // movement
+                            b'>' | b'<' | b'^' | b'v' | b'?' => Style::default().fg(Color::Red),
+                            // branching
+                            b'_' | b'|' | b'#' | b'@' => Style::default().fg(Color::Red),
+                            // stack
+                            b':' | b'\\' | b'$' | b'"' => Style::default(),
+                            // io
+                            b'.' | b',' | b'&' | b'~' => Style::default(),
+                            // storage
+                            b'p' | b'g' => Style::default().fg(Color::Red),
+                            // others
+                            _ => Style::default(),
+                        };
+
+                        Text::styled(data, style)
+                    })
+                    .chain(iter::once(Text::raw("\n")))
+            })
+            .collect()
+    }
+
+    fn format_stack(stack: &Stack) -> [Text; 1] {
+        [Text::raw(format!("{:?}", stack))]
+    }
+
+    fn format_output(output: &[u8]) -> [Text; 1] {
+        [Text::raw(str::from_utf8(output).unwrap())]
+    }
+
+    fn format_input(input: &[u8]) -> [Text; 1] {
+        [Text::raw(str::from_utf8(input).unwrap())]
+    }
+}
+
+fn main() -> io::Result<()> {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+        println!("Usage: ./defunge <file>");
+
+        process::exit(1);
+    }
+
+    // obtain the interpreter
+    let mut file = File::open(&args[1])?;
+    let mut contents = String::new();
+
+    file.read_to_string(&mut contents)?;
+
+    let playfield = Playfield::new(&contents);
+    let input = Cursor::new(Vec::new());
+    let output = Vec::new();
+    let io = InputOutput::new(input, output);
+
+    let interpreter = Interpreter::new(playfield, io);
+    let arc = Arc::new(Mutex::new(interpreter));
+
+    // start the event queue and the runtime environment
+    let events = Events::new(30);
+    let runtime = Runtime::new(Arc::clone(&arc));
+
+    // prepare the terminal
+    let mut ui = UserInterface::new(arc)?;
+
+    // start the rendering loop
+    loop {
+        ui.render()?;
 
         if let Event::Input(k) = events.next() {
             match k {
@@ -254,57 +332,4 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
-}
-
-fn create_interpreter(path: &str) -> Interpreter<Cursor<Vec<u8>>, Vec<u8>> {
-    let mut file = File::open(path).unwrap();
-    let mut contents = String::new();
-
-    file.read_to_string(&mut contents).unwrap();
-
-    let playfield = Playfield::new(&contents);
-    let input = Cursor::new(Vec::new());
-    let output = Vec::new();
-    let io = InputOutput::new(input, output);
-
-    Interpreter::new(playfield, io)
-}
-
-fn format_playfield(playfield: &Playfield, pos: (usize, usize)) -> Vec<Text> {
-    let mut text = Vec::new();
-
-    for (y, l) in playfield.lines().enumerate() {
-        for (x, c) in l.chunks(1).enumerate() {
-            let data = std::str::from_utf8(c).unwrap();
-
-            let mut style = match c[0] {
-                // numbers
-                b'0'...b'9' => Style::default().fg(Color::Blue),
-                // operators
-                b'+' | b'-' | b'*' | b'/' | b'%' | b'!' | b'`' => Style::default().fg(Color::Red),
-                // movement
-                b'>' | b'<' | b'^' | b'v' | b'?' => Style::default().fg(Color::Red),
-                // branching
-                b'_' | b'|' | b'#' | b'@' => Style::default().fg(Color::Red),
-                // stack
-                b':' | b'\\' | b'$' | b'"' => Style::default(),
-                // io
-                b'.' | b',' | b'&' | b'~' => Style::default(),
-                // storage
-                b'p' | b'g' => Style::default().fg(Color::Red),
-                // others
-                _ => Style::default(),
-            };
-
-            if pos == (x, y) {
-                style = style.bg(Color::Red).fg(Color::White);
-            }
-
-            text.push(Text::styled(data, style));
-        }
-
-        text.push(Text::raw("\n"));
-    }
-
-    text
 }

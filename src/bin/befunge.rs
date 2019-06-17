@@ -1,6 +1,6 @@
 extern crate berust;
 
-use berust::interpreter::{StdInputOutput, Interpreter};
+use berust::interpreter::{Interpreter, StdInputOutput};
 use berust::playfield::Playfield;
 use std::env;
 use std::fs::File;

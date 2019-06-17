@@ -35,6 +35,16 @@ impl Playfield {
         }
     }
 
+    /// Return the width of this playfield.
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Return the height of this playfield.
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
     /// Return the dimensions of this playfield.
     pub fn dimensions(&self) -> (usize, usize) {
         (self.width, self.height)
