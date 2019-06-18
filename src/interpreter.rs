@@ -1,7 +1,7 @@
 use crate::playfield::*;
 use rand::distributions;
 use std::io;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::prelude::*;
 
 /// The current mode of the program
 ///
@@ -18,25 +18,23 @@ pub type Stack = Vec<i64>;
 
 /// A provider of input and output operations.
 pub struct InputOutput<R, W> {
-    reader: BufReader<R>,
+    reader: R,
     writer: W,
 }
 
 impl<R, W> InputOutput<R, W>
 where
-    R: Read,
+    R: BufRead,
     W: Write,
 {
     /// Create a new input and output provider based on the given reader and writer.
     pub fn new(reader: R, writer: W) -> Self {
-        let reader = BufReader::new(reader);
-
         Self { reader, writer }
     }
 
     /// Return the input provider.
     pub fn reader(&self) -> &R {
-        self.reader.get_ref()
+        &self.reader
     }
 
     /// Return the output provider.
@@ -73,10 +71,14 @@ where
     }
 }
 
-impl InputOutput<io::Stdin, io::Stdout> {
-    /// Create a new input and output provider based on `stdin` and `stdout`.
-    pub fn from_std() -> Self {
-        Self::new(io::stdin(), io::stdout())
+/// An [`InputOutput`] implementation based on `stdin` and `stdout`.
+///
+/// [`IntputOutput`]: struct.InputOutput.html
+pub type StdInputOutput = InputOutput<io::BufReader<io::Stdin>, io::Stdout>;
+
+impl Default for StdInputOutput {
+    fn default() -> Self {
+        Self::new(io::BufReader::new(io::stdin()), io::stdout())
     }
 }
 
@@ -91,7 +93,7 @@ pub struct Interpreter<R, W> {
 
 impl<R, W> Interpreter<R, W>
 where
-    R: Read,
+    R: BufRead,
     W: Write,
 {
     /// Create a new interpreter for the given playfield.
@@ -320,7 +322,7 @@ where
 
 impl<R, W> Iterator for Interpreter<R, W>
 where
-    R: Read,
+    R: BufRead,
     W: Write,
 {
     type Item = ();

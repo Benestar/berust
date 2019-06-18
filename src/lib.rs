@@ -6,10 +6,10 @@
 //! # Example
 //!
 //! ```
-//! # use berust::interpreter::{InputOutput, Interpreter};
+//! # use berust::interpreter::{StdInputOutput, Interpreter};
 //! # use berust::playfield::Playfield;
 //! let playfield = Playfield::new("23*.@");
-//! let io = InputOutput::from_std();
+//! let io = StdInputOutput::default();
 //!
 //! let interpreter = Interpreter::new(playfield, io);
 //!
