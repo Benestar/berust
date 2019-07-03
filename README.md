@@ -1,3 +1,3 @@
 # Berust
 
-A Befunge interpreter written in Rust
+A Befunge interpreter and debugger written in Rust

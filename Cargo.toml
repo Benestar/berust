@@ -1,7 +1,9 @@
 [package]
 name = "berust"
 version = "0.1.0"
+description = "A Befunge interpreter and debugger written in Rust"
 authors = ["Benedikt Seidl"]
+license = "MIT"
 edition = "2018"
 
 [dependencies]
